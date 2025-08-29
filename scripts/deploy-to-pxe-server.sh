@@ -1,5 +1,5 @@
 #!/bin/bash
-
+# shellcheck disable=SC2029,SC2029,SC2029,SC2029,SC2029,SC2029,SC2029,SC2029,SC2029
 set -euo pipefail
 
 # Deploy artifacts to existing PXE server

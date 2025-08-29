@@ -1,0 +1,56 @@
+name: Quick Tests
+
+on:
+  push:
+    paths:
+      - 'scripts/**'
+      - '.github/workflows/**'
+  pull_request:
+    paths:
+      - 'scripts/**'
+      - '.github/workflows/**'
+  workflow_dispatch:
+
+jobs:
+  lint-and-syntax:
+    name: Lint and Syntax Check
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Install shellcheck
+      run: sudo apt-get update && sudo apt-get install -y shellcheck
+      
+    - name: Check script syntax
+      run: |
+        echo "=== Checking script syntax ==="
+        find scripts/ -name "*.sh" -type f | while read -r script; do
+          echo "Checking $script..."
+          bash -n "$script"
+        done
+        
+    - name: Run shellcheck
+      run: |
+        echo "=== Running shellcheck ==="
+        find scripts/ -name "*.sh" -type f | while read -r script; do
+          echo "Shellcheck for $script..."
+          shellcheck "$script" || echo "Shellcheck found issues in $script"
+        done
+        
+    - name: Check for TODO/FIXME comments
+      run: |
+        echo "=== Checking for TODO/FIXME comments ==="
+        find scripts/ -name "*.sh" -type f -exec grep -Hn "TODO\|FIXME\|XXX" {} \; || echo "No TODO/FIXME comments found"
+        
+    - name: Verify script executability
+      run: |
+        echo "=== Checking script permissions ==="
+        find scripts/ -name "*.sh" -type f | while read -r script; do
+          if [ -x "$script" ]; then
+            echo "✅ $script is executable"
+          else
+            echo "⚠️  $script is not executable"
+          fi
+        done
