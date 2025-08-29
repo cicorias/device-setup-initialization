@@ -72,8 +72,8 @@ FSTAB
 echo "root:ubuntu123" | chpasswd
 
 # Install kernel and essential packages
-apt update
-apt install -y linux-image-generic grub-pc
+apt-get update
+apt-get install -y linux-image-generic grub-pc
 
 # Install GRUB to the disk (not partition)
 grub-install --boot-directory=/boot /dev/loop0
@@ -115,10 +115,10 @@ FSTAB
 echo "root:debian123" | chpasswd
 
 # Update package lists
-apt update
+apt-get update
 
 # Install kernel and GRUB tools
-DEBIAN_FRONTEND=noninteractive apt install -y linux-image-amd64 grub2-common grub-pc-bin
+DEBIAN_FRONTEND=noninteractive apt-get install -y linux-image-amd64 grub2-common grub-pc-bin
 
 # Check if update-grub exists, if not use grub-mkconfig
 if command -v update-grub >/dev/null 2>&1; then
