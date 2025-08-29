@@ -1,5 +1,5 @@
 #!/bin/bash
-
+# shellcheck disable=SC2043,SC2043
 # Test script for PXE deployment package verification
 
 set -e

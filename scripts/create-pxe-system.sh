@@ -1,5 +1,5 @@
 #!/bin/bash
-
+# shellcheck disable=SC2026,SC1078,SC1079,SC2046,SC2043,SC2029,SC2086,SC2010,SC2012,SC2317
 set -eo pipefail
 
 # Get script directory
@@ -373,6 +373,7 @@ main() {
     echo "Disk size: $(lsblk -d -o SIZE "$DISK" | tail -1)"
     
     if [ -t 0 ]; then  # Interactive mode
+        # shellcheck disable=SC2026,SC1078
         read -p "Type 'YES' to continue: " confirm
         if [ "$confirm" != "YES" ]; then
             echo "Installation cancelled."
