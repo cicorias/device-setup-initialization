@@ -1,0 +1,131 @@
+name: Full PXE System Build
+
+on:
+  workflow_dispatch:
+    inputs:
+      build_img:
+        description: 'Build IMG files (time-intensive)'
+        required: false
+        default: 'false'
+        type: boolean
+      img_size:
+        description: 'IMG file size (e.g., 4G, 8G)'
+        required: false
+        default: '4G'
+        type: string
+  release:
+    types: [published]
+
+env:
+  ARTIFACTS: ${{ github.workspace }}/artifacts
+
+jobs:
+  full-build:
+    name: Full PXE System Build
+    runs-on: ubuntu-latest
+    timeout-minutes: 120  # 2 hours timeout for full builds
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Free up disk space
+      run: |
+        # Remove unnecessary packages to free up space
+        sudo apt-get remove -y '^llvm-.*'
+        sudo apt-get remove -y 'php.*'
+        sudo apt-get autoremove -y
+        sudo apt-get clean
+        df -h
+        
+    - name: Setup environment
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y \
+          debootstrap \
+          squashfs-tools \
+          qemu-utils \
+          syslinux-utils \
+          isolinux \
+          xorriso \
+          rsync \
+          wget \
+          curl
+        
+    - name: Create artifacts directory
+      run: mkdir -p ${{ env.ARTIFACTS }}
+      
+    - name: Make scripts executable
+      run: chmod +x scripts/*.sh
+      
+    - name: Run full PXE system creation
+      run: |
+        cd scripts
+        export OUTPUT_SQUASHFS=true
+        export OUTPUT_IMG=${{ github.event.inputs.build_img || 'false' }}
+        export IMG_SIZE=${{ github.event.inputs.img_size || '4G' }}
+        export CI=true
+        ./create-pxe-system.sh
+      
+    - name: Test deployment package
+      run: |
+        cd scripts
+        ./test-deployment-package.sh
+        
+    - name: Generate PXE config
+      run: |
+        cd scripts
+        ./generate-pxe-config.sh
+        
+    - name: Create release artifacts
+      run: |
+        cd ${{ env.ARTIFACTS }}
+        
+        # Create compressed archives of the main deliverables
+        if [ -d "pxe-files" ]; then
+          tar -czf pxe-files.tar.gz pxe-files/
+        fi
+        
+        if [ -d "server-deployment" ]; then
+          tar -czf server-deployment.tar.gz server-deployment/
+        fi
+        
+        if [ -d "os-images" ]; then
+          tar -czf os-images.tar.gz os-images/
+        fi
+        
+        # Create checksums
+        find . -name "*.tar.gz" -exec sha256sum {} \; > checksums.txt
+        
+    - name: Display build summary
+      run: |
+        echo "=== Build Summary ==="
+        echo "Timestamp: $(date)"
+        echo "Commit: ${{ github.sha }}"
+        echo "Branch: ${{ github.ref_name }}"
+        
+        echo "=== Artifacts Size ==="
+        cd ${{ env.ARTIFACTS }}
+        du -sh * 2>/dev/null || true
+        
+        echo "=== Checksums ==="
+        if [ -f checksums.txt ]; then
+          cat checksums.txt
+        fi
+        
+    - name: Upload build artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: pxe-system-full-build-${{ github.sha }}
+        path: |
+          ${{ env.ARTIFACTS }}/*.tar.gz
+          ${{ env.ARTIFACTS }}/checksums.txt
+        retention-days: 30
+        
+    - name: Upload to release (if release event)
+      if: github.event_name == 'release'
+      uses: softprops/action-gh-release@v1
+      with:
+        files: |
+          ${{ env.ARTIFACTS }}/*.tar.gz
+          ${{ env.ARTIFACTS }}/checksums.txt
