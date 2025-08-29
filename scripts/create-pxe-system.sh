@@ -490,10 +490,10 @@ build_os_images() {
     sudo chroot "$UBUNTU_DIR" /bin/bash -c '
         echo "ubuntu-os" > /etc/hostname
         echo "root:ubuntu123" | chpasswd
-        apt update
-        DEBIAN_FRONTEND=noninteractive apt install -y linux-image-generic openssh-server
+        apt-get update
+        DEBIAN_FRONTEND=noninteractive apt-get install -y linux-image-generic openssh-server
         systemctl enable ssh
-        apt clean
+        apt-get clean
     '
     
     # Create Ubuntu tarball
@@ -509,10 +509,10 @@ build_os_images() {
     sudo chroot "$DEBIAN_DIR" /bin/bash -c '
         echo "debian-os" > /etc/hostname
         echo "root:debian123" | chpasswd
-        apt update
-        DEBIAN_FRONTEND=noninteractive apt install -y linux-image-amd64 openssh-server
+        apt-get update
+        DEBIAN_FRONTEND=noninteractive apt-get install -y linux-image-amd64 openssh-server
         systemctl enable ssh
-        apt clean
+        apt-get clean
     '
     
     # Create Debian tarball
