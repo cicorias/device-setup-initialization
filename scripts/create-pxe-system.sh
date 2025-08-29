@@ -2,11 +2,21 @@
 
 set -eo pipefail
 
+# Get script directory
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
 # Configuration
 ARTIFACTS="${ARTIFACTS:-$(pwd -P)/artifacts}"
 CHROOT_DIR="${ARTIFACTS}/pxe-rootfs"
 PXE_DIR="${ARTIFACTS}/pxe-files"
 OS_IMAGES_DIR="${ARTIFACTS}/os-images"
+IMAGES_DIR="${ARTIFACTS}/images"
+INTEGRATION_DIR="${ARTIFACTS}/pxe-integration"
+
+# Output format options
+OUTPUT_SQUASHFS="${OUTPUT_SQUASHFS:-true}"
+OUTPUT_IMG="${OUTPUT_IMG:-true}"
+IMG_SIZE="${IMG_SIZE:-4G}"
 
 # Colors for output
 RED='\033[0;31m'
@@ -43,7 +53,7 @@ trap cleanup EXIT
 # Create directory structure
 setup_directories() {
     log "Setting up directory structure..."
-    mkdir -p "${ARTIFACTS}" "${PXE_DIR}" "${OS_IMAGES_DIR}"
+    mkdir -p "${ARTIFACTS}" "${PXE_DIR}" "${OS_IMAGES_DIR}" "${IMAGES_DIR}" "${INTEGRATION_DIR}"
     cd "${ARTIFACTS}"
 }
 
@@ -438,8 +448,10 @@ SERVICE_EOF
     sudo umount "${CHROOT_DIR}/dev" "${CHROOT_DIR}/proc" "${CHROOT_DIR}/sys" "${CHROOT_DIR}/run"
     
     # Create SquashFS and extract boot files
-    log "Creating SquashFS filesystem..."
-    sudo mksquashfs "${CHROOT_DIR}" "${PXE_DIR}/filesystem.squashfs" -e boot
+    if [[ "$OUTPUT_SQUASHFS" == "true" ]]; then
+        log "Creating SquashFS filesystem..."
+        sudo mksquashfs "${CHROOT_DIR}" "${PXE_DIR}/filesystem.squashfs" -e boot
+    fi
     
     log "Extracting kernel and initrd..."
     # Check if kernel files exist in boot directory
@@ -507,6 +519,93 @@ build_os_images() {
     sudo rm -rf "$DEBIAN_DIR"
 }
 
+# Create IMG files for HTTP serving
+create_img_files() {
+    if [[ "$OUTPUT_IMG" != "true" ]]; then
+        log "IMG output disabled, skipping IMG creation"
+        return 0
+    fi
+    
+    log "Creating IMG files for HTTP serving..."
+    
+    # Create dual-OS installer IMG
+    log "Creating dual-OS installer IMG file..."
+    local installer_img="${IMAGES_DIR}/dual-os-installer.img"
+    
+    # Create empty IMG file
+    sudo dd if=/dev/zero of="$installer_img" bs=1M count=0 seek=$(echo "$IMG_SIZE" | sed 's/G/*1024/g' | bc) status=progress
+    
+    # Format as ext4
+    sudo mkfs.ext4 -F -L "DualOSInstaller" "$installer_img"
+    
+    # Mount and populate IMG
+    local img_mount="/tmp/img_mount_$$"
+    sudo mkdir -p "$img_mount"
+    sudo mount -o loop "$installer_img" "$img_mount"
+    
+    # Copy installer system to IMG
+    sudo rsync -av --exclude='/dev/*' --exclude='/proc/*' --exclude='/sys/*' --exclude='/run/*' \
+        --exclude='/tmp/*' --exclude='/boot/*' "${CHROOT_DIR}/" "$img_mount/"
+    
+    # Create installation metadata
+    sudo tee "$img_mount/etc/installer-info" > /dev/null << EOF
+# Dual-OS Installer Image Information
+INSTALLER_VERSION=1.0
+BUILD_DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+UBUNTU_VERSION=24.04
+DEBIAN_VERSION=bookworm
+SUPPORT_UEFI=true
+SUPPORT_BIOS=true
+PARTITION_LAYOUT=grub:512M,ubuntu:3.5G,debian:3.5G,data:remaining
+EOF
+    
+    sudo umount "$img_mount"
+    sudo rmdir "$img_mount"
+    
+    # Create Ubuntu minimal IMG if OS images were built
+    if [[ -f "${OS_IMAGES_DIR}/ubuntu-os.tar.gz" ]]; then
+        log "Creating Ubuntu minimal IMG file..."
+        local ubuntu_img="${IMAGES_DIR}/ubuntu-minimal.img"
+        
+        sudo dd if=/dev/zero of="$ubuntu_img" bs=1M count=0 seek=3584 status=progress  # 3.5G
+        sudo mkfs.ext4 -F -L "UbuntuMinimal" "$ubuntu_img"
+        
+        local ubuntu_mount="/tmp/ubuntu_mount_$$"
+        sudo mkdir -p "$ubuntu_mount"
+        sudo mount -o loop "$ubuntu_img" "$ubuntu_mount"
+        
+        # Extract Ubuntu OS
+        sudo tar -xzf "${OS_IMAGES_DIR}/ubuntu-os.tar.gz" -C "$ubuntu_mount"
+        
+        sudo umount "$ubuntu_mount"
+        sudo rmdir "$ubuntu_mount"
+    fi
+    
+    # Create Debian minimal IMG if OS images were built
+    if [[ -f "${OS_IMAGES_DIR}/debian-os.tar.gz" ]]; then
+        log "Creating Debian minimal IMG file..."
+        local debian_img="${IMAGES_DIR}/debian-minimal.img"
+        
+        sudo dd if=/dev/zero of="$debian_img" bs=1M count=0 seek=3584 status=progress  # 3.5G
+        sudo mkfs.ext4 -F -L "DebianMinimal" "$debian_img"
+        
+        local debian_mount="/tmp/debian_mount_$$"
+        sudo mkdir -p "$debian_mount"
+        sudo mount -o loop "$debian_img" "$debian_mount"
+        
+        # Extract Debian OS
+        sudo tar -xzf "${OS_IMAGES_DIR}/debian-os.tar.gz" -C "$debian_mount"
+        
+        sudo umount "$debian_mount"
+        sudo rmdir "$debian_mount"
+    fi
+    
+    # Set proper permissions
+    sudo chown -R $(whoami):$(whoami) "${IMAGES_DIR}"
+    
+    log "IMG files created successfully"
+}
+
 # Create PXE configuration files
 create_pxe_config() {
     log "Creating PXE configuration files..."
@@ -539,365 +638,102 @@ LABEL localboot
 EOF
 }
 
-# Generate server deployment package
+# Generate server deployment package (DEPRECATED)
 create_deployment_package() {
-    log "Creating server deployment package..."
-    
-    DEPLOY_DIR="${ARTIFACTS}/server-deployment"
-    mkdir -p "${DEPLOY_DIR}/config"
-    
-    # Create deployment README
-    cat > "${DEPLOY_DIR}/README.md" << 'EOF'
-# PXE Server Deployment Package
-
-This package contains everything needed to set up a complete PXE boot server using standard PXE implementation (PXELINUX).
-
-## Quick Setup
-1. Copy this entire directory to your server
-2. Edit `config/server-config.env` with your network settings
-3. Run `./deploy-pxe-server.sh`
-
-## Manual Setup
-- Run individual scripts in order:
-  1. `./install-services.sh`
-  2. `./configure-dhcp.sh` 
-  3. `./setup-tftp.sh`
-  4. `./setup-http.sh`
-
-## Files Structure
-- `pxe-files/` - Boot files for TFTP (PXELINUX)
-- `os-images/` - OS tarballs for HTTP download
-- `config/` - Configuration templates
-- `scripts/` - Installation scripts
-
-## Network Requirements
-- DHCP server capability
-- Ports 69 (TFTP), 80 (HTTP), 67/68 (DHCP)
-- Uses standard PXELINUX bootloader (no iPXE)
-EOF
-
-    # Create server configuration file
-    cat > "${DEPLOY_DIR}/config/server-config.env" << 'EOF'
-# PXE Server Configuration
-# Edit these values for your environment
-
-# Network Configuration
-SERVER_IP="192.168.1.10"
-NETWORK="192.168.1.0"
-NETMASK="255.255.255.0"
-GATEWAY="192.168.1.1"
-DNS_SERVERS="8.8.8.8,8.8.4.4"
-DHCP_RANGE_START="192.168.1.100"
-DHCP_RANGE_END="192.168.1.200"
-
-# Service Configuration
-TFTP_ROOT="/var/lib/tftpboot"
-HTTP_ROOT="/var/www/html"
-DHCP_INTERFACE="eth0"
-
-# File URLs (adjust if using different server)
-PXE_BASE_URL="http://${SERVER_IP}"
-EOF
-
-    # Main deployment script
-    cat > "${DEPLOY_DIR}/deploy-pxe-server.sh" << 'EOF'
-#!/bin/bash
-
-set -e
-
-# Load configuration
-source config/server-config.env
-
-echo "=== PXE Server Deployment ==="
-echo "Server IP: $SERVER_IP"
-echo "Network: $NETWORK/$NETMASK"
-echo "DHCP Range: $DHCP_RANGE_START - $DHCP_RANGE_END"
-echo
-
-read -p "Continue with deployment? (y/N): " -n 1 -r
-echo
-if [[ ! $REPLY =~ ^[Yy]$ ]]; then
-    echo "Deployment cancelled."
-    exit 1
-fi
-
-echo "Installing services..."
-./scripts/install-services.sh
-
-echo "Setting up TFTP..."
-./scripts/setup-tftp.sh
-
-echo "Setting up HTTP..."
-./scripts/setup-http.sh
-
-echo "Configuring DHCP..."
-./scripts/configure-dhcp.sh
-
-echo
-echo "=== Deployment Complete ==="
-echo "PXE server is ready!"
-echo
-echo "Test URLs:"
-echo "  TFTP: tftp://$SERVER_IP/pxelinux.0"
-echo "  HTTP: http://$SERVER_IP/pxe-files/"
-echo "  HTTP: http://$SERVER_IP/images/"
-echo
-echo "DHCP will serve PXE clients on network $NETWORK/$NETMASK"
-EOF
-
-    # Service installation script
-    mkdir -p "${DEPLOY_DIR}/scripts"
-    cat > "${DEPLOY_DIR}/scripts/install-services.sh" << 'EOF'
-#!/bin/bash
-
-source config/server-config.env
-
-echo "Updating package list..."
-sudo apt-get update
-
-echo "Installing required packages..."
-sudo apt-get install -y \
-    isc-dhcp-server \
-    tftpd-hpa \
-    syslinux-common \
-    pxelinux \
-    nginx \
-    rsync
-
-echo "Services installed successfully."
-EOF
-
-    # TFTP setup script
-    cat > "${DEPLOY_DIR}/scripts/setup-tftp.sh" << 'EOF'
-#!/bin/bash
-
-source config/server-config.env
-
-echo "Configuring TFTP server..."
-
-# Stop service for configuration
-sudo systemctl stop tftpd-hpa
-
-# Configure TFTP
-cat > /tmp/tftpd-hpa << TFTP_EOF
-TFTP_USERNAME="tftp"
-TFTP_DIRECTORY="$TFTP_ROOT"
-TFTP_ADDRESS="0.0.0.0:69"
-TFTP_OPTIONS="--secure"
-TFTP_EOF
-
-sudo cp /tmp/tftpd-hpa /etc/default/tftpd-hpa
-
-# Create TFTP directory
-sudo mkdir -p "$TFTP_ROOT"
-
-# Copy syslinux files (PXELINUX - standard PXE implementation)
-sudo cp /usr/lib/PXELINUX/pxelinux.0 "$TFTP_ROOT/"
-sudo cp /usr/lib/syslinux/modules/bios/*.c32 "$TFTP_ROOT/"
-
-# Copy our PXE files
-echo "Copying PXE boot files..."
-sudo rsync -av pxe-files/ "$TFTP_ROOT/"
-
-# Set permissions
-sudo chown -R tftp:tftp "$TFTP_ROOT"
-sudo chmod -R 755 "$TFTP_ROOT"
-
-# Start and enable service
-sudo systemctl start tftpd-hpa
-sudo systemctl enable tftpd-hpa
-
-echo "TFTP server configured and started."
-echo "Files available at: tftp://$SERVER_IP/"
-EOF
-
-    # HTTP setup script  
-    cat > "${DEPLOY_DIR}/scripts/setup-http.sh" << 'EOF'
-#!/bin/bash
-
-source config/server-config.env
-
-echo "Configuring HTTP server..."
-
-# Create web directories
-sudo mkdir -p "$HTTP_ROOT/pxe-files"
-sudo mkdir -p "$HTTP_ROOT/images"
-
-# Copy files
-echo "Copying PXE files..."
-sudo rsync -av pxe-files/ "$HTTP_ROOT/pxe-files/"
-
-echo "Copying OS images..."
-sudo rsync -av os-images/ "$HTTP_ROOT/images/"
-
-# Create nginx configuration
-cat > /tmp/pxe-nginx.conf << NGINX_EOF
-server {
-    listen 80 default_server;
-    listen [::]:80 default_server;
-    
-    root $HTTP_ROOT;
-    index index.html index.htm;
-    server_name _;
-    
-    # Increase limits for large file transfers
-    client_max_body_size 10G;
-    client_body_timeout 300s;
-    send_timeout 300s;
-    keepalive_timeout 300s;
-    
-    # Enable directory listing
-    location / {
-        autoindex on;
-        autoindex_exact_size off;
-        autoindex_localtime on;
-        try_files \$uri \$uri/ =404;
-    }
-    
-    # Specific locations for PXE files
-    location /pxe-files/ {
-        autoindex on;
-        autoindex_exact_size off;
-        add_header Cache-Control "public, max-age=3600";
-    }
-    
-    location /images/ {
-        autoindex on;
-        autoindex_exact_size off;
-        add_header Cache-Control "public, max-age=86400";
-    }
-    
-    # Logging
-    access_log /var/log/nginx/pxe_access.log;
-    error_log /var/log/nginx/pxe_error.log;
-}
-NGINX_EOF
-
-sudo cp /tmp/pxe-nginx.conf /etc/nginx/sites-available/pxe
-sudo ln -sf /etc/nginx/sites-available/pxe /etc/nginx/sites-enabled/pxe
-sudo rm -f /etc/nginx/sites-enabled/default
-
-# Set permissions
-sudo chown -R www-data:www-data "$HTTP_ROOT"
-sudo chmod -R 755 "$HTTP_ROOT"
-
-# Test and restart nginx
-sudo nginx -t
-sudo systemctl restart nginx
-sudo systemctl enable nginx
-
-echo "HTTP server configured and started."
-echo "Files available at: http://$SERVER_IP/"
-EOF
-
-    # DHCP configuration script
-    cat > "${DEPLOY_DIR}/scripts/configure-dhcp.sh" << 'EOF'
-#!/bin/bash
-
-source config/server-config.env
-
-echo "Configuring DHCP server..."
-
-# Backup original config
-sudo cp /etc/dhcp/dhcpd.conf /etc/dhcp/dhcpd.conf.backup 2>/dev/null || true
-
-# Create DHCP configuration
-cat > /tmp/dhcpd.conf << DHCP_EOF
-# PXE DHCP Configuration
-option domain-name "pxe.local";
-option domain-name-servers $DNS_SERVERS;
-default-lease-time 600;
-max-lease-time 7200;
-authoritative;
-
-# PXE Boot Options
-option space pxelinux;
-option pxelinux.magic code 208 = string;
-option pxelinux.configfile code 209 = text;
-option pxelinux.pathprefix code 210 = text;
-option pxelinux.reboottime code 211 = unsigned integer 32;
-option architecture-type code 93 = unsigned integer 16;
-
-subnet $NETWORK netmask $NETMASK {
-    range $DHCP_RANGE_START $DHCP_RANGE_END;
-    option routers $GATEWAY;
-    option broadcast-address $(echo $NETWORK | cut -d. -f1-3).255;
-    
-    # PXE Boot Configuration
-    next-server $SERVER_IP;
-    
-    # Boot filename based on client architecture (standard PXE only)
-    if option architecture-type = 00:07 or option architecture-type = 00:09 {
-        # UEFI x64 - use standard EFI bootloader
-        filename "bootx64.efi";
-    } else {
-        # Legacy BIOS - use PXELINUX
-        filename "pxelinux.0";
-    }
-}
-
-# Static reservations example (uncomment and modify as needed)
-# host client1 {
-#     hardware ethernet 00:11:22:33:44:55;
-#     fixed-address 192.168.1.50;
-# }
-DHCP_EOF
-
-sudo cp /tmp/dhcpd.conf /etc/dhcp/dhcpd.conf
-
-# Configure interface
-echo "INTERFACESv4=\"$DHCP_INTERFACE\"" | sudo tee /etc/default/isc-dhcp-server
-
-# Test configuration
-sudo dhcpd -t -cf /etc/dhcp/dhcpd.conf
-
-# Start and enable service
-sudo systemctl restart isc-dhcp-server
-sudo systemctl enable isc-dhcp-server
-
-echo "DHCP server configured and started."
-echo "Serving network: $NETWORK/$NETMASK"
-echo "IP range: $DHCP_RANGE_START - $DHCP_RANGE_END"
-EOF
-
-    # Make scripts executable
-    chmod +x "${DEPLOY_DIR}"/*.sh
-    chmod +x "${DEPLOY_DIR}/scripts"/*.sh
-    
-    # Copy PXE files and OS images to deployment package
-    cp -r "${PXE_DIR}" "${DEPLOY_DIR}/pxe-files"
-    cp -r "${OS_IMAGES_DIR}" "${DEPLOY_DIR}/os-images"
-    
-    log "Deployment package created in: ${DEPLOY_DIR}"
+    warn "create_deployment_package() is DEPRECATED"
+    warn "Use cicorias/pxe-server-setup for PXE server infrastructure"
+    warn "Use ./scripts/deploy-to-pxe-server.sh for deploying built images"
+    warn ""
+    warn "Skipping legacy deployment package creation"
+    warn "Set CREATE_LEGACY_PACKAGE=true to force creation"
 }
 
 # Main execution
 main() {
     log "Starting PXE system creation..."
     
+    # Parse command line arguments
+    while [[ $# -gt 0 ]]; do
+        case $1 in
+            --no-squashfs)
+                OUTPUT_SQUASHFS="false"
+                shift
+                ;;
+            --no-img)
+                OUTPUT_IMG="false"
+                shift
+                ;;
+            --img-size)
+                IMG_SIZE="$2"
+                shift 2
+                ;;
+            --help|-h)
+                echo "Usage: $0 [options]"
+                echo "Options:"
+                echo "  --no-squashfs     Skip SquashFS creation (legacy compatibility)"
+                echo "  --no-img          Skip IMG file creation"
+                echo "  --img-size SIZE   Set IMG file size (default: 4G)"
+                echo "  --help, -h        Show this help"
+                exit 0
+                ;;
+            *)
+                warn "Unknown option: $1"
+                shift
+                ;;
+        esac
+    done
+    
+    log "Configuration:"
+    log "- SquashFS output: $OUTPUT_SQUASHFS"
+    log "- IMG output: $OUTPUT_IMG"
+    log "- IMG size: $IMG_SIZE"
+    
     setup_directories
     build_pxe_environment
     build_os_images
-    create_deployment_package
+    create_img_files
+    create_pxe_config
+    
+    # Generate integration configuration
+    log "Generating PXE integration configuration..."
+    "${SCRIPT_DIR}/generate-pxe-config.sh"
+    
+    # Create legacy deployment package (deprecated)
+    if [[ "${CREATE_LEGACY_PACKAGE:-false}" == "true" ]]; then
+        warn "Creating legacy deployment package (deprecated)"
+        create_deployment_package
+    fi
     
     log "PXE system creation complete!"
     log ""
-    log "=== DEPLOYMENT INSTRUCTIONS ==="
-    log "1. Copy 'artifacts/server-deployment/' to your PXE server"
-    log "2. Edit 'server-deployment/config/server-config.env' with your network settings"
-    log "3. Run 'server-deployment/deploy-pxe-server.sh' on the target server"
+    log "=== NEW ARCHITECTURE (RECOMMENDED) ==="
+    log "1. Set up PXE server using: https://github.com/cicorias/pxe-server-setup"
+    log "2. Deploy to PXE server: ./scripts/deploy-to-pxe-server.sh <server-ip>"
+    log "3. Or follow manual instructions in: artifacts/pxe-integration/"
     log ""
     log "=== FILES CREATED ==="
     log "Build artifacts: ${ARTIFACTS}"
-    log "Deployment package: ${ARTIFACTS}/server-deployment/"
-    log "PXE boot files: ${PXE_DIR}"
-    log "OS images: ${OS_IMAGES_DIR}"
+    if [[ "$OUTPUT_IMG" == "true" ]]; then
+        log "IMG files: ${IMAGES_DIR}"
+    fi
+    if [[ "$OUTPUT_SQUASHFS" == "true" ]]; then
+        log "Legacy PXE files: ${PXE_DIR}"
+    fi
+    log "Integration config: ${INTEGRATION_DIR}"
+    if [[ -d "${ARTIFACTS}/server-deployment" ]]; then
+        log "Legacy package: ${ARTIFACTS}/server-deployment/ (deprecated)"
+    fi
     log ""
     log "=== WHAT'S INCLUDED ==="
-    log "- Complete PXE boot environment with disk installer"
+    log "- Custom installation system with dual-boot capability"
+    if [[ "$OUTPUT_IMG" == "true" ]]; then
+        log "- IMG files for HTTP serving (modern approach)"
+    fi
+    if [[ "$OUTPUT_SQUASHFS" == "true" ]]; then
+        log "- SquashFS live boot system (legacy compatibility)"
+    fi
     log "- Pre-built Ubuntu and Debian OS images"
-    log "- DHCP, TFTP, and HTTP server configurations"
-    log "- Automated deployment scripts"
+    log "- PXE integration configuration and deployment scripts"
 }
 
 # Run main function
