@@ -71,8 +71,7 @@ artifacts/
 │   ├── vmlinuz                   # Linux kernel
 │   ├── initrd                    # Initial ramdisk
 │   ├── filesystem.squashfs       # Live system
-│   ├── pxelinux.cfg/default      # PXE menu
-│   └── boot.ipxe                 # iPXE script
+│   └── pxelinux.cfg/default      # PXE menu (PXELINUX)
 ├── os-images/                    # HTTP downloadable OS
 │   ├── ubuntu-os.tar.gz          # Ubuntu filesystem
 │   └── debian-os.tar.gz          # Debian filesystem
@@ -125,7 +124,7 @@ server {
 - **Purpose**: Serve initial boot files (small, fast)
 - **Port**: 69 (UDP)
 - **Files Served**:
-  - `pxelinux.0` - PXE bootloader
+  - `pxelinux.0` - PXELINUX bootloader (standard PXE)
   - `vmlinuz` - Linux kernel (~8MB)
   - `initrd` - Initial ramdisk (~50MB)
   - `*.c32` - Syslinux modules

@@ -513,14 +513,14 @@ create_pxe_config() {
     
     mkdir -p "${PXE_DIR}/pxelinux.cfg"
     
-    # Create PXE menu
+    # Create PXE menu using PXELINUX (default Debian/Ubuntu PXE implementation)
     cat > "${PXE_DIR}/pxelinux.cfg/default" << 'EOF'
 DEFAULT menu.c32
 PROMPT 0
 TIMEOUT 100
 ONTIMEOUT installer
 
-MENU TITLE PXE Boot Menu
+MENU TITLE PXE Boot Menu - Dual-OS Installation
 MENU BACKGROUND pxelinux.cfg/background.png
 
 LABEL installer
@@ -532,16 +532,10 @@ LABEL manual
     MENU LABEL Manual Installation Mode
     KERNEL vmlinuz
     APPEND initrd=initrd boot=live fetch=http://pxe-server/pxe-files/filesystem.squashfs systemd.unit=multi-user.target
-EOF
 
-    # Create iPXE script for UEFI
-    cat > "${PXE_DIR}/boot.ipxe" << 'EOF'
-#!ipxe
-dhcp
-echo Starting PXE boot...
-kernel http://pxe-server/pxe-files/vmlinuz boot=live fetch=http://pxe-server/pxe-files/filesystem.squashfs
-initrd http://pxe-server/pxe-files/initrd
-boot
+LABEL localboot
+    MENU LABEL Boot from Local Hard Drive
+    LOCALBOOT 0
 EOF
 }
 
@@ -556,7 +550,7 @@ create_deployment_package() {
     cat > "${DEPLOY_DIR}/README.md" << 'EOF'
 # PXE Server Deployment Package
 
-This package contains everything needed to set up a complete PXE boot server.
+This package contains everything needed to set up a complete PXE boot server using standard PXE implementation (PXELINUX).
 
 ## Quick Setup
 1. Copy this entire directory to your server
@@ -571,7 +565,7 @@ This package contains everything needed to set up a complete PXE boot server.
   4. `./setup-http.sh`
 
 ## Files Structure
-- `pxe-files/` - Boot files for TFTP
+- `pxe-files/` - Boot files for TFTP (PXELINUX)
 - `os-images/` - OS tarballs for HTTP download
 - `config/` - Configuration templates
 - `scripts/` - Installation scripts
@@ -579,6 +573,7 @@ This package contains everything needed to set up a complete PXE boot server.
 ## Network Requirements
 - DHCP server capability
 - Ports 69 (TFTP), 80 (HTTP), 67/68 (DHCP)
+- Uses standard PXELINUX bootloader (no iPXE)
 EOF
 
     # Create server configuration file
@@ -696,7 +691,7 @@ sudo cp /tmp/tftpd-hpa /etc/default/tftpd-hpa
 # Create TFTP directory
 sudo mkdir -p "$TFTP_ROOT"
 
-# Copy syslinux files
+# Copy syslinux files (PXELINUX - standard PXE implementation)
 sudo cp /usr/lib/PXELINUX/pxelinux.0 "$TFTP_ROOT/"
 sudo cp /usr/lib/syslinux/modules/bios/*.c32 "$TFTP_ROOT/"
 
@@ -831,17 +826,14 @@ subnet $NETWORK netmask $NETMASK {
     # PXE Boot Configuration
     next-server $SERVER_IP;
     
-    # Boot filename based on client architecture
+    # Boot filename based on client architecture (standard PXE only)
     if option architecture-type = 00:07 or option architecture-type = 00:09 {
-        # UEFI x64 or UEFI x64 HTTP
+        # UEFI x64 - use standard EFI bootloader
         filename "bootx64.efi";
     } else {
-        # Legacy BIOS
+        # Legacy BIOS - use PXELINUX
         filename "pxelinux.0";
     }
-    
-    # Custom PXE options
-    option pxelinux.pathprefix "$PXE_BASE_URL/pxe-files/";
 }
 
 # Static reservations example (uncomment and modify as needed)
