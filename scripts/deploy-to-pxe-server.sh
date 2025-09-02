@@ -55,6 +55,13 @@ usage() {
     echo "  3. Artifacts must be built using ./create-pxe-system.sh"
 }
 
+# add a warning message that this was not tested well and wait 5 seconds for user to config Y/n
+warn "WARNING: This script has not been extensively tested."
+read -t 5 -p "Please configure your settings (Y/n): " response || response="Y"
+if [[ ! "$response" =~ ^[Yy]$ ]]; then
+    error "User aborted deployment."
+fi
+
 # Validate arguments
 if [[ -z "$PXE_SERVER_IP" ]]; then
     echo -e "${RED}Error: PXE server IP address required${NC}"
