@@ -2,7 +2,11 @@
 
 ## Overview
 
-This system provides a complete PXE (Preboot Execution Environment) solution for automated dual-OS installation on target machines. The strategy separates concerns between PXE server infrastructure and installation image creation for better maintainability and scalability.
+The purpose of this project is to generate the supporting IMG files that can be placed on a PXE server.
+
+This image should be small, perhaps with SquashFS or some image that can provide the first run experience.
+
+There are to be , based upon Ubuntu 24.04.3 LTS (Noble Numbat).
 
 ## Updated Architecture (2025)
 
@@ -27,7 +31,6 @@ This repository now focuses solely on **installation image creation** and integr
 ### System Architecture
 
 ### Network Boot Flow
-
 ```mermaid
 graph TD
     A[Client Boot] --> B[DHCP Request]
