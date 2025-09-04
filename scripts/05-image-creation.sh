@@ -95,12 +95,27 @@ calculate_image_size() {
     
     local root_fs_dir="$BUILD_DIR/rootfs"
     
-    # Calculate rootfs size
-    local rootfs_size=$(du -sb "$root_fs_dir" | cut -f1)
+    # Calculate rootfs size excluding virtual filesystems
+    # Use find to exclude /proc, /sys, /dev, and other virtual mounts
+    local rootfs_size=$(find "$root_fs_dir" -xdev -type f -exec du -b {} + 2>/dev/null | awk '{sum+=$1} END {print sum}')
+    
+    # Fallback if find fails - use du with exclusions
+    if [[ -z "$rootfs_size" || "$rootfs_size" -eq 0 ]]; then
+        rootfs_size=$(du -sb --exclude="$root_fs_dir/proc" --exclude="$root_fs_dir/sys" --exclude="$root_fs_dir/dev" --exclude="$root_fs_dir/run" "$root_fs_dir" 2>/dev/null | cut -f1)
+    fi
+    
+    # Convert to MB and add safety check
     local rootfs_size_mb=$((rootfs_size / 1024 / 1024))
     
-    # Add padding for filesystem overhead and future growth
-    local padding_mb=500
+    # Sanity check - rootfs should be reasonable size (100MB - 10GB)
+    if [[ $rootfs_size_mb -lt 100 || $rootfs_size_mb -gt 10240 ]]; then
+        warn "Calculated rootfs size seems unreasonable: ${rootfs_size_mb}MB"
+        warn "Using default size of 2GB for safety"
+        rootfs_size_mb=2048
+    fi
+    
+    # Add padding for filesystem overhead and future growth (including initramfs)
+    local padding_mb=1000  # Increased for initramfs-tools and initrd
     local total_rootfs_mb=$((rootfs_size_mb + padding_mb))
     
     # Calculate total image size based on partition layout
@@ -114,6 +129,11 @@ calculate_image_size() {
     # Total size with some extra space for partition table and alignment
     local total_size_mb=$((efi_size_mb + total_rootfs_mb + swap_size_mb + os1_size_mb + os2_size_mb + data_min_mb + 100))
     
+    # Final sanity check on total image size
+    if [[ $total_size_mb -gt 51200 ]]; then
+        error "Total image size too large: ${total_size_mb}MB (components: EFI=${efi_size_mb}MB, Root=${total_rootfs_mb}MB, Swap=${swap_size_mb}MB, OS1=${os1_size_mb}MB, OS2=${os2_size_mb}MB, Data=${data_min_mb}MB)"
+    fi
+    
     # Store calculated sizes for use in other functions
     export IMAGE_SIZE_MB="$total_size_mb"
     export ROOT_PARTITION_SIZE_MB="$total_rootfs_mb"
@@ -124,7 +144,13 @@ calculate_image_size() {
     export DATA_SIZE_MB="$data_min_mb"
     
     info "Image size calculations:"
-    info "  Root filesystem: ${total_rootfs_mb}MB"
+    info "  Raw rootfs size: ${rootfs_size_mb}MB"
+    info "  Root partition (with padding): ${total_rootfs_mb}MB"
+    info "  EFI partition: ${efi_size_mb}MB"
+    info "  Swap partition: ${swap_size_mb}MB"
+    info "  OS1 partition: ${os1_size_mb}MB"
+    info "  OS2 partition: ${os2_size_mb}MB"
+    info "  Data partition: ${data_min_mb}MB"
     info "  Total image size: ${total_size_mb}MB"
     
     log "Image size calculated: ${total_size_mb}MB"
@@ -135,15 +161,26 @@ create_raw_image() {
     log "Creating raw disk image..."
     
     local image_path="$BUILD_DIR/images/raw/edge-device-init.img"
-    local size_bytes=$((IMAGE_SIZE_MB * 1024 * 1024))
     
-    # Create sparse file for efficiency
-    dd if=/dev/zero of="$image_path" bs=1M count=0 seek="$IMAGE_SIZE_MB" || error "Failed to create raw image"
+    # Validate image size is reasonable (max 50GB for safety)
+    if [[ $IMAGE_SIZE_MB -gt 51200 ]]; then
+        error "Image size too large: ${IMAGE_SIZE_MB}MB (max 50GB allowed)"
+    fi
     
-    # Make it a regular file (not sparse) for compatibility
-    dd if=/dev/zero of="$image_path" bs=1M count="$IMAGE_SIZE_MB" conv=fsync || error "Failed to create raw image"
+    info "Creating ${IMAGE_SIZE_MB}MB disk image..."
     
-    info "Raw image created: $image_path (${IMAGE_SIZE_MB}MB)"
+    # Create sparse file for efficiency - this is sufficient for most use cases
+    dd if=/dev/zero of="$image_path" bs=1M count=0 seek="$IMAGE_SIZE_MB" 2>/dev/null || error "Failed to create raw image"
+    
+    # Verify the file was created with correct size
+    local actual_size=$(stat -c%s "$image_path" 2>/dev/null || echo "0")
+    local expected_size=$((IMAGE_SIZE_MB * 1024 * 1024))
+    
+    if [[ $actual_size -ne $expected_size ]]; then
+        error "Image file size mismatch: expected $expected_size bytes, got $actual_size bytes"
+    fi
+    
+    info "Raw image created: $image_path (${IMAGE_SIZE_MB}MB sparse file)"
     
     # Store image path for other functions
     export RAW_IMAGE_PATH="$image_path"
@@ -411,9 +448,13 @@ create_compressed_images() {
     info "Creating xz compressed image..."
     xz -c "$raw_image" > "$compressed_dir/edge-device-init.img.xz" || error "Failed to create xz image"
     
-    # Create zip archive
+    # Create zip archive (if zip is available)
     info "Creating zip archive..."
-    (cd "$(dirname "$raw_image")" && zip "$compressed_dir/edge-device-init.zip" "$(basename "$raw_image")")
+    if command -v zip &> /dev/null; then
+        (cd "$(dirname "$raw_image")" && zip "$compressed_dir/edge-device-init.zip" "$(basename "$raw_image")")
+    else
+        warn "zip command not available, skipping zip archive creation"
+    fi
     
     log "Compressed images created"
 }

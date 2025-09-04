@@ -69,6 +69,78 @@ check_prerequisites() {
     log "Prerequisites check completed"
 }
 
+# Install host build tools needed for testing and validation
+install_host_build_tools() {
+    log "Installing host build tools for image creation, testing and validation..."
+    
+    # Core system tools needed for build environment
+    local core_tools=(
+        "debootstrap"      # For creating minimal Ubuntu systems
+        "parted"           # For disk partitioning
+        "fdisk"            # For disk manipulation  
+        "util-linux"       # Provides losetup, mount, umount
+        "e2fsprogs"        # Provides mkfs.ext4, resize2fs, e2fsck
+        "dosfstools"       # Provides mkfs.fat for EFI partitions
+    )
+    
+    # Compression and archive tools
+    local compression_tools=(
+        "gzip"             # For creating .gz compressed images
+        "xz-utils"         # For creating .xz compressed images  
+        "zip"              # For creating .zip archives
+    )
+    
+    # File and data management tools
+    local file_tools=(
+        "rsync"            # For efficient file copying
+        "file"             # For file type detection
+        "pv"               # For progress viewing during operations
+        "bc"               # For arithmetic calculations
+        "jq"               # For JSON processing
+    )
+    
+    # Virtualization and testing tools
+    local virt_tools=(
+        "qemu-system-x86"  # For virtualization testing
+        "qemu-utils"       # For disk image utilities (qemu-img)
+    )
+    
+    # Combine all tool lists
+    local all_host_tools=("${core_tools[@]}" "${compression_tools[@]}" "${file_tools[@]}" "${virt_tools[@]}")
+    
+    # Update package lists once
+    info "Updating package lists..."
+    apt-get update -qq || warn "Failed to update package lists"
+    
+    # Install each tool if not already present
+    for tool in "${all_host_tools[@]}"; do
+        if ! dpkg -l | grep -q "^ii  $tool "; then
+            info "Installing host tool: $tool"
+            apt-get install -y "$tool" || warn "Failed to install $tool"
+        else
+            info "Host tool already installed: $tool"
+        fi
+    done
+    
+    # Verify critical tools are available
+    local critical_commands=("debootstrap" "parted" "losetup" "mkfs.ext4" "mkfs.fat" "rsync" "gzip" "xz")
+    local missing_tools=()
+    
+    for cmd in "${critical_commands[@]}"; do
+        if ! command -v "$cmd" &> /dev/null; then
+            missing_tools+=("$cmd")
+        fi
+    done
+    
+    if [ ${#missing_tools[@]} -gt 0 ]; then
+        error "Critical build tools are missing: ${missing_tools[*]}"
+        error "Build environment setup failed"
+        return 1
+    fi
+    
+    log "Host build tools installation completed successfully"
+}
+
 # Setup chroot environment
 setup_chroot_environment() {
     log "Setting up chroot environment for package installation..."
@@ -215,6 +287,7 @@ install_kernel_packages() {
     local kernel_packages=(
         "$kernel_package"
         "linux-firmware"
+        "initramfs-tools"
         "grub-efi-amd64"
         "grub-efi-amd64-signed"
         "shim-signed"
@@ -227,7 +300,29 @@ install_kernel_packages() {
         chroot "$root_fs_dir" env DEBIAN_FRONTEND=noninteractive apt-get install -y "$package" || warn "Failed to install $package"
     done
     
+    # Generate initramfs for the installed kernel
+    generate_initramfs
+    
     log "Kernel and boot packages installed"
+}
+
+# Generate initramfs for the kernel
+generate_initramfs() {
+    log "Generating initramfs..."
+    
+    local root_fs_dir="$BUILD_DIR/rootfs"
+    
+    # Find the kernel version
+    local kernel_version=$(chroot "$root_fs_dir" find /lib/modules -maxdepth 1 -type d -name "*-generic" | head -1 | sed 's|.*/||')
+    
+    if [[ -n "$kernel_version" ]]; then
+        info "Generating initramfs for kernel: $kernel_version"
+        chroot "$root_fs_dir" update-initramfs -c -k "$kernel_version" || warn "Failed to generate initramfs"
+    else
+        warn "No kernel version found for initramfs generation"
+    fi
+    
+    log "Initramfs generation completed"
 }
 
 # Install network packages
@@ -655,6 +750,7 @@ EOF
 main() {
     show_header
     check_prerequisites
+    install_host_build_tools
     setup_chroot_environment
     update_package_lists
     install_essential_packages
