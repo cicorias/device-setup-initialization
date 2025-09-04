@@ -521,7 +521,7 @@ test_compressed_images() {
         warn "Gzip image not found"
         ((comp_errors++))
     fi
-    
+
     if [[ $comp_errors -eq 0 ]]; then
         TEST_RESULTS[$test_name]="PASS - All compressed images are valid"
     else

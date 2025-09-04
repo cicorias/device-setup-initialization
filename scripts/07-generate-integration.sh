@@ -136,35 +136,24 @@ menuentry 'Edge Device Rescue Mode' {
 }
 EOF
     
-    # Create iPXE configuration
-    cat > "$pxe_integration_dir/edge-device.ipxe" << EOF
-#!ipxe
-# iPXE Configuration for Edge Device Initialization
+    # Create standard PXE configuration for SYSLINUX/PXELINUX
+    cat > "$pxe_integration_dir/pxelinux.cfg" << EOF
+# PXE Configuration for Edge Device Initialization
+# Uses standard PXE implementation (no iPXE)
 
-:start
-menu Edge Device Options
-item --gap --             --------------------------------
-item init                 Edge Device Initialization
-item rescue               Edge Device Rescue Mode
-item --gap --             --------------------------------
-item return               Return to main menu
-choose --timeout 30000 --default init selected || goto return
-goto \${selected}
+DEFAULT edge-device-init
+TIMEOUT 300
+PROMPT 1
 
-:init
-echo Booting Edge Device Initialization System...
-kernel edge-device/vmlinuz root=LABEL=INIT-ROOT ro quiet splash
-initrd edge-device/initrd.img
-boot
-
-:rescue
-echo Booting Edge Device Rescue Mode...
-kernel edge-device/vmlinuz root=LABEL=INIT-ROOT ro single
-initrd edge-device/initrd.img
-boot
-
-:return
-exit
+LABEL edge-device-init
+    MENU LABEL Edge Device Initialization
+    KERNEL edge-device/vmlinuz
+    APPEND initrd=edge-device/initrd.img root=LABEL=INIT-ROOT ro quiet splash
+    
+LABEL edge-device-rescue
+    MENU LABEL Edge Device Rescue Mode  
+    KERNEL edge-device/vmlinuz
+    APPEND initrd=edge-device/initrd.img root=LABEL=INIT-ROOT ro single
 EOF
     
     log "PXE server integration files generated"
@@ -323,7 +312,6 @@ deploy_files() {
     info "Copying configuration files..."
     scp "$pxe_files_dir"/*.menu "$PXE_SERVER_USER@$PXE_SERVER_HOST:$PXE_TFTP_ROOT/$DEPLOYMENT_NAME/" 2>/dev/null || true
     scp "$pxe_files_dir"/*.cfg "$PXE_SERVER_USER@$PXE_SERVER_HOST:$PXE_TFTP_ROOT/$DEPLOYMENT_NAME/" 2>/dev/null || true
-    scp "$pxe_files_dir"/*.ipxe "$PXE_SERVER_USER@$PXE_SERVER_HOST:$PXE_TFTP_ROOT/$DEPLOYMENT_NAME/" 2>/dev/null || true
     
     # Copy images to HTTP server if available
     local images_dir="$script_dir/../../images"
