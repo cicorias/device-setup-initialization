@@ -167,7 +167,7 @@ install_base_system() {
     debootstrap \
         --arch=amd64 \
         --variant=minbase \
-        --include=systemd,systemd-sysv,dbus,apt-utils,locales,ca-certificates \
+        --include=systemd,systemd-sysv,dbus,apt-utils,locales,ca-certificates,gnupg,gpgv \
         --cache-dir="$BUILD_DIR/cache" \
         "$ubuntu_release" \
         "$root_fs_dir" \
@@ -483,7 +483,7 @@ cleanup_and_finalize() {
 
 # Save configuration log
 save_configuration_log() {
-    local log_file="$BUILD_LOG_DIR/$SCRIPT_NAME.log"
+    local log_file="$BUILD_LOG_DIR/$SCRIPT_NAME.summary.log"
     
     cat > "$log_file" << EOF
 # System Configuration Log

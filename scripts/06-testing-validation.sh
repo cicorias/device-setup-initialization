@@ -44,6 +44,82 @@ info() {
 # Test results tracking
 declare -A TEST_RESULTS
 
+# Global cleanup tracking
+declare -a MOUNTED_PATHS=()
+declare -a LOOP_DEVICES=()
+
+# Cleanup function for exit
+cleanup_on_exit() {
+    local exit_code=$?
+    
+    if [[ ${#MOUNTED_PATHS[@]} -gt 0 ]] || [[ ${#LOOP_DEVICES[@]} -gt 0 ]]; then
+        warn "Performing cleanup on script exit..."
+        
+        # Unmount any remaining mounted paths
+        for mount_path in "${MOUNTED_PATHS[@]}"; do
+            if mountpoint -q "$mount_path" 2>/dev/null; then
+                info "Unmounting: $mount_path"
+                sudo umount "$mount_path" 2>/dev/null || warn "Failed to unmount $mount_path"
+            fi
+        done
+        
+        # Detach any remaining loop devices
+        for loop_dev in "${LOOP_DEVICES[@]}"; do
+            if losetup "$loop_dev" &>/dev/null; then
+                info "Detaching loop device: $loop_dev"
+                sudo losetup -d "$loop_dev" 2>/dev/null || warn "Failed to detach $loop_dev"
+            fi
+        done
+        
+        # Clean up any test mount points
+        for test_dir in "$BUILD_DIR/tmp/test-root" "$BUILD_DIR/tmp/test-grub" "$BUILD_DIR/tmp/test-efi"; do
+            if [[ -d "$test_dir" ]]; then
+                if mountpoint -q "$test_dir" 2>/dev/null; then
+                    info "Force unmounting: $test_dir"
+                    sudo umount "$test_dir" 2>/dev/null || true
+                fi
+                rm -rf "$test_dir" 2>/dev/null || true
+            fi
+        done
+        
+        info "Cleanup completed"
+    fi
+    
+    exit $exit_code
+}
+
+# Set up cleanup trap
+trap cleanup_on_exit EXIT INT TERM
+
+# Helper functions for tracking resources
+track_mount() {
+    local mount_path="$1"
+    MOUNTED_PATHS+=("$mount_path")
+}
+
+track_loop_device() {
+    local loop_dev="$1" 
+    LOOP_DEVICES+=("$loop_dev")
+}
+
+untrack_mount() {
+    local mount_path="$1"
+    local new_array=()
+    for path in "${MOUNTED_PATHS[@]}"; do
+        [[ "$path" != "$mount_path" ]] && new_array+=("$path")
+    done
+    MOUNTED_PATHS=("${new_array[@]}")
+}
+
+untrack_loop_device() {
+    local loop_dev="$1"
+    local new_array=()
+    for dev in "${LOOP_DEVICES[@]}"; do
+        [[ "$dev" != "$loop_dev" ]] && new_array+=("$dev")
+    done
+    LOOP_DEVICES=("${new_array[@]}")
+}
+
 # Script header
 show_header() {
     log "Starting $SCRIPT_NAME v$SCRIPT_VERSION"
@@ -243,14 +319,17 @@ test_root_filesystem_content() {
     
     # Setup loop device and mount root partition
     local loop_device=$(losetup --show -f "$raw_image")
+    track_loop_device "$loop_device"
     partprobe "$loop_device"
     sleep 2
     
     if ! mount "${loop_device}p2" "$mount_point"; then
         TEST_RESULTS[$test_name]="FAIL - Cannot mount root partition"
         losetup -d "$loop_device"
+        untrack_loop_device "$loop_device"
         return 1
     fi
+    track_mount "$mount_point"
     
     local content_errors=0
     
@@ -319,7 +398,9 @@ test_root_filesystem_content() {
     fi
     
     umount "$mount_point"
+    untrack_mount "$mount_point"
     losetup -d "$loop_device"
+    untrack_loop_device "$loop_device"
     rm -rf "$mount_point"
     
     if [[ $content_errors -eq 0 ]]; then
@@ -343,14 +424,17 @@ test_grub_configuration() {
     
     # Setup loop device and mount root partition
     local loop_device=$(losetup --show -f "$raw_image")
+    track_loop_device "$loop_device"
     partprobe "$loop_device"
     sleep 2
     
     if ! mount "${loop_device}p2" "$mount_point"; then
         TEST_RESULTS[$test_name]="FAIL - Cannot mount root partition"
         losetup -d "$loop_device"
+        untrack_loop_device "$loop_device"
         return 1
     fi
+    track_mount "$mount_point"
     
     local grub_errors=0
     
@@ -390,18 +474,22 @@ test_grub_configuration() {
     mkdir -p "$efi_mount"
     
     if mount "${loop_device}p1" "$efi_mount"; then
+        track_mount "$efi_mount"
         if [[ ! -d "$efi_mount/EFI" ]]; then
             warn "EFI directory structure missing"
             ((grub_errors++))
         fi
         umount "$efi_mount"
+        untrack_mount "$efi_mount"
     else
         warn "Cannot mount EFI partition"
         ((grub_errors++))
     fi
     
     umount "$mount_point"
+    untrack_mount "$mount_point"
     losetup -d "$loop_device"
+    untrack_loop_device "$loop_device"
     rm -rf "$mount_point"
     
     if [[ $grub_errors -eq 0 ]]; then

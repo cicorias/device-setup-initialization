@@ -161,6 +161,12 @@ setup_chroot_environment() {
         mount --bind /sys "$root_fs_dir/sys"
     fi
     
+    # Ensure /dev/null exists and has proper permissions
+    if [[ ! -c "$root_fs_dir/dev/null" ]]; then
+        mknod "$root_fs_dir/dev/null" c 1 3
+        chmod 666 "$root_fs_dir/dev/null"
+    fi
+    
     # Copy resolv.conf for internet access
     cp /etc/resolv.conf "$root_fs_dir/etc/resolv.conf"
     
@@ -188,6 +194,30 @@ EOF
     rm -f "$root_fs_dir/tmp/debconf-set-selections"
     
     log "Chroot environment ready with non-interactive configuration"
+}
+
+# Install GPG verification tools in chroot
+install_gpg_tools() {
+    log "Installing GPG verification tools in chroot..."
+    
+    local root_fs_dir="$BUILD_DIR/rootfs"
+    
+    # Temporarily disable signature verification to install gpg tools
+    cat > "$root_fs_dir/etc/apt/apt.conf.d/99-disable-gpg-verify" << EOF
+APT::Get::AllowUnauthenticated "true";
+Acquire::AllowInsecureRepositories "true";
+Acquire::AllowDowngradeToInsecureRepositories "true";
+EOF
+    
+    # Install GPG verification tools
+    info "Installing gnupg and gpgv packages..."
+    chroot "$root_fs_dir" apt-get update -o APT::Get::AllowUnauthenticated=true
+    chroot "$root_fs_dir" apt-get install -y -o APT::Get::AllowUnauthenticated=true gnupg gpgv
+    
+    # Re-enable signature verification
+    rm -f "$root_fs_dir/etc/apt/apt.conf.d/99-disable-gpg-verify"
+    
+    log "GPG verification tools installed successfully"
 }
 
 # Update package lists
@@ -752,6 +782,7 @@ main() {
     check_prerequisites
     install_host_build_tools
     setup_chroot_environment
+    install_gpg_tools
     update_package_lists
     install_essential_packages
     install_kernel_packages

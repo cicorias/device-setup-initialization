@@ -50,6 +50,14 @@ warn() {
 
 error() {
     echo -e "${RED}[$(date +'%Y-%m-%d %H:%M:%S')] ERROR: $1${NC}"
+    
+    # Run cleanup on error
+    local cleanup_script="$SCRIPTS_DIR/99-cleanup.sh"
+    if [[ -f "$cleanup_script" ]]; then
+        echo -e "${YELLOW}[$(date +'%Y-%m-%d %H:%M:%S')] Running cleanup due to error...${NC}"
+        sudo "$cleanup_script" 2>/dev/null || echo -e "${YELLOW}[$(date +'%Y-%m-%d %H:%M:%S')] Cleanup script failed${NC}"
+    fi
+    
     exit 1
 }
 
@@ -202,21 +210,36 @@ clean_artifacts() {
     if [[ "${CLEAN_BUILD:-false}" == "true" ]]; then
         log "Cleaning previous artifacts..."
         if [[ -d "$ARTIFACTS" ]]; then
-            # Unmount any loop devices
-            for mount_point in $(mount | grep "$ARTIFACTS" | awk '{print $3}'); do
-                debug "Unmounting $mount_point"
-                sudo umount "$mount_point" 2>/dev/null || true
-            done
-            
-            # Clean up loop devices
-            for loop in $(losetup -a | grep "$ARTIFACTS" | cut -d: -f1); do
-                debug "Detaching loop device $loop"
-                sudo losetup -d "$loop" 2>/dev/null || true
-            done
-            
-            rm -rf "$ARTIFACTS"
+            # Use comprehensive cleanup script if available
+            local cleanup_script="$SCRIPTS_DIR/99-cleanup.sh"
+            if [[ -f "$cleanup_script" ]]; then
+                log "Using comprehensive cleanup script..."
+                sudo "$cleanup_script" --force-artifacts || {
+                    warn "Comprehensive cleanup failed, falling back to basic cleanup"
+                    basic_cleanup_artifacts
+                }
+            else
+                basic_cleanup_artifacts
+            fi
         fi
     fi
+}
+
+# Basic cleanup function (fallback)
+basic_cleanup_artifacts() {
+    # Unmount any loop devices
+    for mount_point in $(mount | grep "$ARTIFACTS" | awk '{print $3}'); do
+        debug "Unmounting $mount_point"
+        sudo umount "$mount_point" 2>/dev/null || true
+    done
+    
+    # Clean up loop devices
+    for loop in $(losetup -a | grep "$ARTIFACTS" | cut -d: -f1); do
+        debug "Detaching loop device $loop"
+        sudo losetup -d "$loop" 2>/dev/null || true
+    done
+    
+    rm -rf "$ARTIFACTS"
 }
 
 # Setup build environment
@@ -403,16 +426,31 @@ cleanup() {
     if [[ "${CLEANUP_ON_EXIT:-true}" == "true" ]]; then
         debug "Performing cleanup..."
         
-        # Unmount any remaining mounts
-        for mount_point in $(mount | grep "$ARTIFACTS" | awk '{print $3}' 2>/dev/null || true); do
-            debug "Unmounting $mount_point"
-            sudo umount "$mount_point" 2>/dev/null || true
-        done
-        
-        # Clean up temporary files in artifacts/temp
-        if [[ -d "$ARTIFACTS/temp" ]]; then
-            rm -rf "$ARTIFACTS/temp"/* 2>/dev/null || true
+        # Use comprehensive cleanup script if available
+        local cleanup_script="$SCRIPTS_DIR/99-cleanup.sh"
+        if [[ -f "$cleanup_script" ]]; then
+            debug "Using comprehensive cleanup script for exit cleanup..."
+            sudo "$cleanup_script" --mounts-only --loops-only 2>/dev/null || {
+                warn "Comprehensive cleanup failed, falling back to basic cleanup"
+                basic_exit_cleanup
+            }
+        else
+            basic_exit_cleanup
         fi
+    fi
+}
+
+# Basic exit cleanup function (fallback)
+basic_exit_cleanup() {
+    # Unmount any remaining mounts
+    for mount_point in $(mount | grep "$ARTIFACTS" | awk '{print $3}' 2>/dev/null || true); do
+        debug "Unmounting $mount_point"
+        sudo umount "$mount_point" 2>/dev/null || true
+    done
+    
+    # Clean up temporary files in artifacts/temp
+    if [[ -d "$ARTIFACTS/temp" ]]; then
+        rm -rf "$ARTIFACTS/temp"/* 2>/dev/null || true
     fi
 }
 
