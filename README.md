@@ -144,10 +144,8 @@ build/
 ├── images/
 │   ├── raw/                    # Raw disk images
 │   │   └── edge-device-init.img
-│   ├── compressed/             # Compressed formats  
-│   │   ├── edge-device-init.img.gz
-│   │   ├── edge-device-init.img.xz
-│   │   └── edge-device-init.zip
+│   ├── compressed/             # Compressed format  
+│   │   └── edge-device-init.img.gz
 │   └── pxe/                    # PXE boot files
 │       ├── vmlinuz
 │       └── initrd.img

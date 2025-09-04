@@ -487,7 +487,7 @@ detect_images() {
     local images_dir="$script_dir/../../images"
     
     echo "Available images:"
-    find "$images_dir" -name "*.img" -o -name "*.img.gz" -o -name "*.img.xz" 2>/dev/null | while read -r img; do
+    find "$images_dir" -name "*.img" -o -name "*.img.gz" 2>/dev/null | while read -r img; do
         local size=$(du -h "$img" | cut -f1)
         echo "  $(basename "$img") ($size)"
     done
@@ -630,9 +630,6 @@ write_image() {
     if [[ "$image_path" =~ \.gz$ ]]; then
         info "Decompressing and writing gzip image..."
         gunzip -c "$image_path" | dd of="$TARGET_DEVICE" bs=4M status=progress oflag=sync
-    elif [[ "$image_path" =~ \.xz$ ]]; then
-        info "Decompressing and writing xz image..."
-        xz -dc "$image_path" | dd of="$TARGET_DEVICE" bs=4M status=progress oflag=sync
     else
         info "Writing raw image..."
         dd if="$image_path" of="$TARGET_DEVICE" bs=4M status=progress oflag=sync

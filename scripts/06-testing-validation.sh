@@ -522,34 +522,6 @@ test_compressed_images() {
         ((comp_errors++))
     fi
     
-    # Test xz image
-    if [[ -f "$compressed_dir/edge-device-init.img.xz" ]]; then
-        if xz -t "$compressed_dir/edge-device-init.img.xz" &>/dev/null; then
-            info "XZ image integrity ✓"
-        else
-            warn "XZ image corruption detected"
-            ((comp_errors++))
-        fi
-    else
-        warn "XZ image not found"
-        ((comp_errors++))
-    fi
-    
-    # Test zip archive
-    if [[ -f "$compressed_dir/edge-device-init.zip" ]]; then
-        if command -v unzip &> /dev/null; then
-            if unzip -t "$compressed_dir/edge-device-init.zip" &>/dev/null; then
-                info "ZIP archive integrity ✓"
-            else
-                warn "ZIP archive corruption detected"
-                ((comp_errors++))
-            fi
-        fi
-    else
-        warn "ZIP archive not found"
-        ((comp_errors++))
-    fi
-    
     if [[ $comp_errors -eq 0 ]]; then
         TEST_RESULTS[$test_name]="PASS - All compressed images are valid"
     else

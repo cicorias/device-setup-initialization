@@ -335,7 +335,7 @@ rm -f /zeros
 
 - **SquashFS**: High compression for read-only filesystems
 - **IMG Files**: Raw filesystems for flexibility
-- **Gzip/XZ**: Additional compression for network transfer
+- **Gzip**: Additional compression optimized for PXE network transfer
 
 ### Network Optimization
 

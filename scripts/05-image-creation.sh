@@ -440,21 +440,9 @@ create_compressed_images() {
     local raw_image="$RAW_IMAGE_PATH"
     local compressed_dir="$BUILD_DIR/images/compressed"
     
-    # Create gzipped image
+    # Create gzipped image (optimal for PXE - fast decompression, good compression)
     info "Creating gzipped image..."
     gzip -c "$raw_image" > "$compressed_dir/edge-device-init.img.gz" || error "Failed to create gzipped image"
-    
-    # Create xz compressed image (better compression)
-    info "Creating xz compressed image..."
-    xz -c "$raw_image" > "$compressed_dir/edge-device-init.img.xz" || error "Failed to create xz image"
-    
-    # Create zip archive (if zip is available)
-    info "Creating zip archive..."
-    if command -v zip &> /dev/null; then
-        (cd "$(dirname "$raw_image")" && zip "$compressed_dir/edge-device-init.zip" "$(basename "$raw_image")")
-    else
-        warn "zip command not available, skipping zip archive creation"
-    fi
     
     log "Compressed images created"
 }
@@ -502,7 +490,7 @@ generate_checksums() {
     local checksum_dir="$BUILD_DIR/checksums"
     
     # Generate checksums for all image files
-    find "$BUILD_DIR/images" -type f -name "*.img" -o -name "*.gz" -o -name "*.xz" -o -name "*.zip" | while read -r file; do
+    find "$BUILD_DIR/images" -type f -name "*.img" -o -name "*.gz" | while read -r file; do
         local filename=$(basename "$file")
         local dirname=$(dirname "$file" | sed "s|$BUILD_DIR/images/||")
         
@@ -558,15 +546,7 @@ create_image_manifest() {
         "compressed": {
             "gzip": {
                 "filename": "compressed/edge-device-init.img.gz",
-                "description": "Gzip compressed disk image"
-            },
-            "xz": {
-                "filename": "compressed/edge-device-init.img.xz", 
-                "description": "XZ compressed disk image (best compression)"
-            },
-            "zip": {
-                "filename": "compressed/edge-device-init.zip",
-                "description": "ZIP archive containing disk image"
+                "description": "Gzip compressed disk image (optimal for PXE)"
             }
         },
         "pxe": {
@@ -613,7 +593,7 @@ Build Configuration:
 
 Images Created:
 - Raw image: $RAW_IMAGE_PATH
-- Compressed images: gzip, xz, zip formats
+- Compressed images: gzip format (optimal for PXE)
 - PXE boot files: kernel, initrd, configuration
 - Checksums: md5, sha256, sha512 for all images
 

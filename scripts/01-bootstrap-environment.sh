@@ -69,7 +69,6 @@ install_dependencies() {
         
         # Archive and compression tools
         "gzip"
-        "xz-utils"
         "tar"
         
         # Network and boot tools
