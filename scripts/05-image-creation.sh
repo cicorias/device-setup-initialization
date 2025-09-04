@@ -288,7 +288,15 @@ install_root_filesystem() {
     
     # Copy rootfs content
     info "Copying root filesystem (this may take several minutes)..."
-    rsync -av --progress "$BUILD_DIR/rootfs/" "$mount_point/" || error "Failed to copy root filesystem"
+    rsync -av --progress \
+        --exclude='proc/*' \
+        --exclude='sys/*' \
+        --exclude='dev/*' \
+        --exclude='tmp/*' \
+        --exclude='run/*' \
+        --exclude='mnt/*' \
+        --exclude='media/*' \
+        "$BUILD_DIR/rootfs/" "$mount_point/" || error "Failed to copy root filesystem"
     
     # Install GRUB to image
     install_grub_to_image "$mount_point"
