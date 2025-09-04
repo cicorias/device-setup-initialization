@@ -1229,7 +1229,7 @@ EOF
 
 **Artifacts**:
 - Raw disk image
-- Compressed images (gzip, xz, zip)
+- Compressed images (gzip)
 - PXE boot files
 - Checksums
 

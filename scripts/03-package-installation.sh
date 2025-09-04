@@ -86,8 +86,6 @@ install_host_build_tools() {
     # Compression and archive tools
     local compression_tools=(
         "gzip"             # For creating .gz compressed images
-        "xz-utils"         # For creating .xz compressed images  
-        "zip"              # For creating .zip archives
     )
     
     # File and data management tools
@@ -123,7 +121,7 @@ install_host_build_tools() {
     done
     
     # Verify critical tools are available
-    local critical_commands=("debootstrap" "parted" "losetup" "mkfs.ext4" "mkfs.fat" "rsync" "gzip" "xz")
+    local critical_commands=("debootstrap" "parted" "losetup" "mkfs.ext4" "mkfs.fat" "rsync" "gzip")
     local missing_tools=()
     
     for cmd in "${critical_commands[@]}"; do
@@ -271,10 +269,6 @@ install_essential_packages() {
         # Compression and archiving
         "tar"
         "gzip"
-        "bzip2"
-        "xz-utils"
-        "unzip"
-        "zip"
         
         # Text editors and tools
         "nano"
