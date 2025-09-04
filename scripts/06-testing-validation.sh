@@ -524,7 +524,7 @@ test_compressed_images() {
     
     # Test xz image
     if [[ -f "$compressed_dir/edge-device-init.img.xz" ]]; then
-        if xz -t "$compressed_dir/edge-device-init.img.xz" &>/dev/null; then
+        if xz -T0 -t "$compressed_dir/edge-device-init.img.xz" &>/dev/null; then
             info "XZ image integrity ✓"
         else
             warn "XZ image corruption detected"

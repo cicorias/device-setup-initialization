@@ -288,7 +288,15 @@ install_root_filesystem() {
     
     # Copy rootfs content
     info "Copying root filesystem (this may take several minutes)..."
-    rsync -av --progress "$BUILD_DIR/rootfs/" "$mount_point/" || error "Failed to copy root filesystem"
+    rsync -av --progress \
+        --exclude='proc/*' \
+        --exclude='sys/*' \
+        --exclude='dev/*' \
+        --exclude='tmp/*' \
+        --exclude='run/*' \
+        --exclude='mnt/*' \
+        --exclude='media/*' \
+        "$BUILD_DIR/rootfs/" "$mount_point/" || error "Failed to copy root filesystem"
     
     # Install GRUB to image
     install_grub_to_image "$mount_point"
@@ -446,7 +454,7 @@ create_compressed_images() {
     
     # Create xz compressed image (better compression)
     info "Creating xz compressed image..."
-    xz -c "$raw_image" > "$compressed_dir/edge-device-init.img.xz" || error "Failed to create xz image"
+    xz -T0 -c "$raw_image" > "$compressed_dir/edge-device-init.img.xz" || error "Failed to create xz image"
     
     # Create zip archive (if zip is available)
     info "Creating zip archive..."

@@ -65,24 +65,37 @@ Partition 6: Data (Remaining, ext4)
 
 ## Quick Start
 
+
 ### Prerequisites
 
+0. Up the limits for your user if using VS Code and Remote SSH -- by editing or other ways.
+
+```bash
+sudo nano /etc/security/limits.conf
+
+youruser     soft     nofile     65535
+youruser     hard     nofile     65535
+youruser     soft     nproc      65535
+youruser     hard     nproc      65535
+```
+
+
 1. **Build Environment Requirements**
-   ```bash
-   # Ubuntu/Debian build system
-   sudo apt-get update
-   sudo apt-get install -y \
-     debootstrap squashfs-tools qemu-utils rsync \
-     parted dosfstools e2fsprogs grub-efi-amd64 \
-     curl wget git build-essential
-   ```
+```bash
+# Ubuntu/Debian build system
+sudo apt-get update
+sudo apt-get install -y \
+   debootstrap squashfs-tools qemu-utils rsync \
+   parted dosfstools e2fsprogs grub-efi-amd64 \
+   curl wget git build-essential
+```
 
 2. **Configuration Setup**
-   ```bash
-   # Copy and customize configuration
-   cp scripts/config/config.sh.example config.sh
-   # Edit config.sh for your environment
-   ```
+```bash
+# Copy and customize configuration
+cp scripts/config/config.sh.example config.sh
+# Edit config.sh for your environment
+```
 
 ### Build Process
 
