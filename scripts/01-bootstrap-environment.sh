@@ -1,0 +1,321 @@
+#!/bin/bash
+# 01-bootstrap-environment.sh
+# Bootstrap the build environment and install required dependencies
+
+set -euo pipefail
+
+# Load build configuration if available
+if [[ -f "${BUILD_ENV:-}/config.env" ]]; then
+    source "${BUILD_ENV}/config.env"
+fi
+
+# Default configuration
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
+ARTIFACTS="${ARTIFACTS:-$PROJECT_ROOT/artifacts}"
+BUILD_ENV="${BUILD_ENV:-$ARTIFACTS/build-env}"
+
+# Colors for output
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+NC='\033[0m'
+
+log() {
+    echo -e "${GREEN}[$(date +'%Y-%m-%d %H:%M:%S')] $1${NC}"
+}
+
+warn() {
+    echo -e "${YELLOW}[$(date +'%Y-%m-%d %H:%M:%S')] WARNING: $1${NC}"
+}
+
+error() {
+    echo -e "${RED}[$(date +'%Y-%m-%d %H:%M:%S')] ERROR: $1${NC}"
+    exit 1
+}
+
+info() {
+    echo -e "${BLUE}[$(date +'%Y-%m-%d %H:%M:%S')] INFO: $1${NC}"
+}
+
+# Update package lists
+update_packages() {
+    log "Updating package lists..."
+    sudo apt-get update
+}
+
+# Install build dependencies
+install_dependencies() {
+    log "Installing build dependencies..."
+    
+    local packages=(
+        # Core build tools
+        "build-essential"
+        "git"
+        "curl"
+        "wget"
+        
+        # Filesystem and image tools
+        "debootstrap"
+        "squashfs-tools"
+        "qemu-utils"
+        "parted"
+        "gdisk"
+        "dosfstools"
+        "e2fsprogs"
+        "rsync"
+        "pv"
+        
+        # Archive and compression tools
+        "gzip"
+        "tar"
+        
+        # Network and boot tools
+        "live-boot"
+        "live-boot-initramfs-tools"
+        
+        # GRUB bootloader tools (UEFI only - BIOS support removed)
+        "grub-efi-amd64"
+        "grub-efi-amd64-bin"
+        "grub-common"
+        "grub2-common"
+        
+        # System utilities
+        "dialog"
+        "whiptail"
+        "systemd"
+        "systemd-sysv"
+        
+        # Network tools
+        "net-tools"
+        "iputils-ping"
+        "network-manager"
+        
+        # Development tools
+        "bc"
+        "jq"
+    )
+    
+    # Install packages with retry logic
+    local max_attempts=3
+    local attempt=1
+    
+    while [[ $attempt -le $max_attempts ]]; do
+        if sudo apt-get install -y "${packages[@]}"; then
+            log "Dependencies installed successfully"
+            break
+        else
+            warn "Package installation failed (attempt $attempt/$max_attempts)"
+            if [[ $attempt -eq $max_attempts ]]; then
+                error "Failed to install dependencies after $max_attempts attempts"
+            fi
+            sleep 5
+            sudo apt-get update
+            ((attempt++))
+        fi
+    done
+}
+
+# Verify installed tools
+verify_tools() {
+    log "Verifying installed tools..."
+    
+    local required_tools=(
+        "debootstrap"
+        "mksquashfs"
+        "parted"
+        "mkfs.fat"
+        "mkfs.ext4"
+        "mkswap"
+        "losetup"
+        "qemu-img"
+        "grub-mkstandalone"
+        "rsync"
+        "pv"
+    )
+    
+    local missing_tools=()
+    
+    for tool in "${required_tools[@]}"; do
+        if ! command -v "$tool" &> /dev/null; then
+            missing_tools+=("$tool")
+        fi
+    done
+    
+    if [[ ${#missing_tools[@]} -gt 0 ]]; then
+        error "Missing required tools: ${missing_tools[*]}"
+    fi
+    
+    info "All required tools are available"
+}
+
+# Create build directory structure
+create_directories() {
+    log "Creating build directory structure..."
+    
+    local directories=(
+        "$BUILD_ENV"
+        "$ARTIFACTS/images"
+        "$ARTIFACTS/os-images"
+        "$ARTIFACTS/pxe-files"
+        "$ARTIFACTS/pxe-integration"
+        "$ARTIFACTS/logs"
+        "$ARTIFACTS/temp"
+        "$BUILD_ENV/chroots"
+        "$BUILD_ENV/mounts"
+        "$BUILD_ENV/loops"
+    )
+    
+    for dir in "${directories[@]}"; do
+        mkdir -p "$dir"
+        info "Created: $dir"
+    done
+    
+    # Set proper permissions
+    chmod 755 "$ARTIFACTS"
+    chmod 755 "$BUILD_ENV"
+}
+
+# Setup loop device management
+setup_loop_devices() {
+    log "Setting up loop device management..."
+    
+    # Check loop device support
+    if ! ls /dev/loop* &> /dev/null; then
+        warn "Loop devices not found, loading loop module"
+        sudo modprobe loop
+    fi
+    
+    # Check available loop devices
+    local available_loops=$(losetup -f 2>/dev/null | wc -l || echo "0")
+    info "Available loop devices: $available_loops"
+    
+    # Create loop device tracking file
+    cat > "$BUILD_ENV/loop-devices.txt" << EOF
+# Loop device tracking for build process
+# Format: device:image_file:mount_point
+# Created: $(date)
+EOF
+}
+
+# Configure build environment
+configure_environment() {
+    log "Configuring build environment..."
+    
+    # Create environment configuration file
+    cat > "$BUILD_ENV/build.env" << EOF
+# Build Environment Configuration
+# Generated by 01-bootstrap-environment.sh
+
+# Timestamps
+BUILD_START_TIME="$(date +%s)"
+BUILD_START_DATE="$(date)"
+
+# System information
+HOST_OS="$(lsb_release -d | cut -f2)"
+HOST_ARCH="$(uname -m)"
+HOST_KERNEL="$(uname -r)"
+
+# Build tools versions
+DEBOOTSTRAP_VERSION="\$(debootstrap --version 2>/dev/null | head -1 || echo 'unknown')"
+GRUB_VERSION="\$(grub-install --version | head -1 || echo 'unknown')"
+PARTED_VERSION="\$(parted --version | head -1 || echo 'unknown')"
+
+# Build paths
+PROJECT_ROOT="$PROJECT_ROOT"
+ARTIFACTS="$ARTIFACTS"
+BUILD_ENV="$BUILD_ENV"
+
+# Status flags
+BOOTSTRAP_COMPLETED=true
+BOOTSTRAP_DATE="$(date)"
+EOF
+    
+    chmod 644 "$BUILD_ENV/build.env"
+    
+    # Create build log
+    touch "$ARTIFACTS/logs/01-bootstrap.log"
+    
+    info "Build environment configured"
+}
+
+# Validate build environment
+validate_environment() {
+    log "Validating build environment..."
+    
+    # Check disk space
+    local artifacts_space=$(df --output=avail "$ARTIFACTS" | tail -1)
+    local required_space=$((15 * 1024 * 1024))  # 15GB in KB
+    
+    if [[ "$artifacts_space" -lt "$required_space" ]]; then
+        error "Insufficient disk space in artifacts directory. Required: 15GB, Available: $((artifacts_space / 1024 / 1024))GB"
+    fi
+    
+    # Check memory (reduced requirement due to swap optimization)
+    local available_memory=$(grep MemAvailable /proc/meminfo | awk '{print $2}')
+    local required_memory=$((512 * 1024))  # 512MB in KB (reduced from 2GB)
+    
+    if [[ "$available_memory" -lt "$required_memory" ]]; then
+        warn "Low memory available. Required: 512MB, Available: $((available_memory / 1024))MB"
+        warn "Build will attempt to use temporary swap to compensate"
+    fi
+    
+    # Check sudo permissions
+    if ! sudo -n true 2>/dev/null; then
+        error "sudo permissions required for build process"
+    fi
+    
+    # Verify Ubuntu/Debian system
+    if ! grep -q "Ubuntu\|Debian" /etc/os-release; then
+        error "Build system requires Ubuntu or Debian"
+    fi
+    
+    info "Environment validation completed successfully"
+}
+
+# Create package requirements file
+create_requirements() {
+    log "Creating package requirements file..."
+    
+    # Get installed package versions
+    cat > "$BUILD_ENV/requirements.txt" << EOF
+# Package Requirements for Device Initialization Build
+# Generated on $(date)
+
+# Build system packages
+$(dpkg-query -W -f='${Package}=${Version}\n' \
+    debootstrap squashfs-tools qemu-utils parted gdisk \
+    dosfstools e2fsprogs grub-pc grub-efi-amd64 grub-common \
+    live-boot live-boot-initramfs-tools rsync pv bc jq 2>/dev/null || true)
+
+# System information
+Host-OS: $(lsb_release -d | cut -f2)
+Host-Arch: $(uname -m)
+Host-Kernel: $(uname -r)
+EOF
+    
+    chmod 644 "$BUILD_ENV/requirements.txt"
+    info "Requirements file created: $BUILD_ENV/requirements.txt"
+}
+
+# Main execution
+main() {
+    log "Starting bootstrap environment setup..."
+    
+    update_packages
+    install_dependencies
+    verify_tools
+    create_directories
+    setup_loop_devices
+    configure_environment
+    validate_environment
+    create_requirements
+    
+    log "Bootstrap environment setup completed successfully!"
+    info "Build environment ready at: $BUILD_ENV"
+    info "Log file: $ARTIFACTS/logs/01-bootstrap.log"
+}
+
+# Run main function
+main "$@"
