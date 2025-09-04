@@ -92,7 +92,30 @@ setup_chroot_environment() {
     # Copy resolv.conf for internet access
     cp /etc/resolv.conf "$root_fs_dir/etc/resolv.conf"
     
-    log "Chroot environment ready"
+    # Configure non-interactive mode for package installation
+    cat > "$root_fs_dir/etc/environment" << EOF
+DEBIAN_FRONTEND=noninteractive
+DEBCONF_NONINTERACTIVE_SEEN=true
+EOF
+    
+    # Pre-configure timezone to avoid interactive prompts
+    echo "${TIMEZONE:-UTC}" > "$root_fs_dir/etc/timezone"
+    chroot "$root_fs_dir" ln -sf "/usr/share/zoneinfo/${TIMEZONE:-UTC}" /etc/localtime
+    
+    # Pre-configure debconf for non-interactive installation
+    cat > "$root_fs_dir/tmp/debconf-set-selections" << EOF
+tzdata tzdata/Areas select Etc
+tzdata tzdata/Zones/Etc select UTC
+locales locales/locales_to_be_generated multiselect en_US.UTF-8 UTF-8
+locales locales/default_environment_locale select en_US.UTF-8
+keyboard-configuration keyboard-configuration/layoutcode string us
+keyboard-configuration keyboard-configuration/variantcode string
+EOF
+    
+    chroot "$root_fs_dir" debconf-set-selections < "$root_fs_dir/tmp/debconf-set-selections"
+    rm -f "$root_fs_dir/tmp/debconf-set-selections"
+    
+    log "Chroot environment ready with non-interactive configuration"
 }
 
 # Update package lists
@@ -175,7 +198,7 @@ install_essential_packages() {
     # Install packages in chunks to handle potential failures
     for package in "${essential_packages[@]}"; do
         info "Installing: $package"
-        chroot "$root_fs_dir" apt-get install -y "$package" || warn "Failed to install $package"
+        chroot "$root_fs_dir" env DEBIAN_FRONTEND=noninteractive apt-get install -y "$package" || warn "Failed to install $package"
     done
     
     log "Essential packages installed"
@@ -201,7 +224,7 @@ install_kernel_packages() {
     
     for package in "${kernel_packages[@]}"; do
         info "Installing kernel package: $package"
-        chroot "$root_fs_dir" apt-get install -y "$package" || warn "Failed to install $package"
+        chroot "$root_fs_dir" env DEBIAN_FRONTEND=noninteractive apt-get install -y "$package" || warn "Failed to install $package"
     done
     
     log "Kernel and boot packages installed"
@@ -233,7 +256,7 @@ install_network_packages() {
     
     for package in "${network_packages[@]}"; do
         info "Installing network package: $package"
-        chroot "$root_fs_dir" apt-get install -y "$package" || warn "Failed to install $package"
+        chroot "$root_fs_dir" env DEBIAN_FRONTEND=noninteractive apt-get install -y "$package" || warn "Failed to install $package"
     done
     
     log "Network packages installed"
@@ -262,7 +285,7 @@ install_security_packages() {
     
     for package in "${security_packages[@]}"; do
         info "Installing security package: $package"
-        chroot "$root_fs_dir" apt-get install -y "$package" || warn "Failed to install $package"
+        chroot "$root_fs_dir" env DEBIAN_FRONTEND=noninteractive apt-get install -y "$package" || warn "Failed to install $package"
     done
     
     log "Security packages installed"
@@ -295,7 +318,7 @@ install_development_packages() {
     
     for package in "${dev_packages[@]}"; do
         info "Installing development package: $package"
-        chroot "$root_fs_dir" apt-get install -y "$package" || warn "Failed to install $package"
+        chroot "$root_fs_dir" env DEBIAN_FRONTEND=noninteractive apt-get install -y "$package" || warn "Failed to install $package"
     done
     
     log "Development packages installed"
@@ -325,7 +348,7 @@ install_monitoring_packages() {
     
     for package in "${monitoring_packages[@]}"; do
         info "Installing monitoring package: $package"
-        chroot "$root_fs_dir" apt-get install -y "$package" || warn "Failed to install $package"
+        chroot "$root_fs_dir" env DEBIAN_FRONTEND=noninteractive apt-get install -y "$package" || warn "Failed to install $package"
     done
     
     log "Monitoring packages installed"
@@ -353,7 +376,7 @@ install_edge_packages() {
     
     for package in "${edge_packages[@]}"; do
         info "Installing edge package: $package"
-        chroot "$root_fs_dir" apt-get install -y "$package" || warn "Failed to install $package"
+        chroot "$root_fs_dir" env DEBIAN_FRONTEND=noninteractive apt-get install -y "$package" || warn "Failed to install $package"
     done
     
     log "Edge computing packages installed"
@@ -580,8 +603,8 @@ cleanup_packages() {
     local root_fs_dir="$BUILD_DIR/rootfs"
     
     # Clean package cache
-    chroot "$root_fs_dir" apt-get clean
-    chroot "$root_fs_dir" apt-get autoremove -y
+    chroot "$root_fs_dir" env DEBIAN_FRONTEND=noninteractive apt-get clean
+    chroot "$root_fs_dir" env DEBIAN_FRONTEND=noninteractive apt-get autoremove -y
     
     # Remove package lists to save space (will be regenerated on first boot)
     rm -rf "$root_fs_dir/var/lib/apt/lists"/*

@@ -76,9 +76,9 @@ install_dependencies() {
         "live-boot"
         "live-boot-initramfs-tools"
         
-        # GRUB bootloader tools
-        "grub-pc"
+        # GRUB bootloader tools (UEFI only - BIOS support removed)
         "grub-efi-amd64"
+        "grub-efi-amd64-bin"
         "grub-common"
         "grub2-common"
         
@@ -253,12 +253,13 @@ validate_environment() {
         error "Insufficient disk space in artifacts directory. Required: 15GB, Available: $((artifacts_space / 1024 / 1024))GB"
     fi
     
-    # Check memory
+    # Check memory (reduced requirement due to swap optimization)
     local available_memory=$(grep MemAvailable /proc/meminfo | awk '{print $2}')
-    local required_memory=$((2 * 1024 * 1024))  # 2GB in KB
+    local required_memory=$((512 * 1024))  # 512MB in KB (reduced from 2GB)
     
     if [[ "$available_memory" -lt "$required_memory" ]]; then
-        warn "Low memory available. Required: 2GB, Available: $((available_memory / 1024 / 1024))GB"
+        warn "Low memory available. Required: 512MB, Available: $((available_memory / 1024))MB"
+        warn "Build will attempt to use temporary swap to compensate"
     fi
     
     # Check sudo permissions

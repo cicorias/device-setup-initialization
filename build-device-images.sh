@@ -7,7 +7,7 @@ set -euo pipefail
 
 # Script directory and project root
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
+PROJECT_ROOT="$SCRIPT_DIR"
 SCRIPTS_DIR="$PROJECT_ROOT/scripts"
 
 # Default configuration
@@ -281,6 +281,18 @@ execute_build_script() {
     # Source build configuration
     source "$BUILD_ENV/config.env"
     
+    # Export environment variables for child scripts
+    export ARTIFACTS
+    export BUILD_ENV
+    export IMAGES_DIR
+    export OS_IMAGES_DIR
+    export PXE_FILES_DIR
+    export INTEGRATION_DIR
+    export UBUNTU_RELEASE
+    export TARGET_ARCH
+    export DEBUG
+    export VERBOSE
+    
     # Execute script with logging
     if [[ "$VERBOSE" == "true" ]]; then
         bash "$script_path" 2>&1 | tee "$log_file"
@@ -313,11 +325,11 @@ main_build() {
     # Execute build phases in order
     local build_scripts=(
         "01-bootstrap-environment.sh"
-        "02-create-initrd.sh"
-        "03-build-root-filesystem.sh"
-        "04-build-os-images.sh"
-        "05-create-grub-config.sh"
-        "06-package-images.sh"
+        "02-system-configuration.sh"
+        "03-package-installation.sh"
+        "04-grub-configuration.sh"
+        "05-image-creation.sh"
+        "06-testing-validation.sh"
         "07-generate-integration.sh"
     )
     

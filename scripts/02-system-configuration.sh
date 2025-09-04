@@ -81,8 +81,9 @@ create_filesystem_structure() {
     mkdir -p "$root_fs_dir"
     
     # Create standard Linux directory structure
+    # Note: bin, sbin, lib, lib64 are excluded as debootstrap creates them as symlinks to usr/*
     local directories=(
-        "bin" "sbin" "lib" "lib64" "usr/bin" "usr/sbin" "usr/lib" "usr/share"
+        "usr/bin" "usr/sbin" "usr/lib" "usr/lib64" "usr/share"
         "etc" "var/log" "var/lib" "var/cache" "var/tmp"
         "tmp" "home" "root" "boot" "boot/efi"
         "dev" "proc" "sys" "run"
@@ -106,14 +107,85 @@ install_base_system() {
     local ubuntu_mirror="${UBUNTU_MIRROR:-http://archive.ubuntu.com/ubuntu}"
     local ubuntu_release="${UBUNTU_RELEASE:-noble}"
     
-    # Run debootstrap to install minimal Ubuntu system
+    # Create cache directory for debootstrap
+    mkdir -p "$BUILD_DIR/cache"
+    
+    # Check memory and create larger swap if needed
+    local available_memory=$(grep MemAvailable /proc/meminfo | awk '{print $2}')
+    local total_memory=$(grep MemTotal /proc/meminfo | awk '{print $2}')
+    local required_memory=$((2 * 1024 * 1024))  # 2GB in KB
+    local temp_swap=""
+    
+    info "Memory status: Total=${total_memory}KB, Available=${available_memory}KB, Required=${required_memory}KB"
+    
+    if [[ "$available_memory" -lt "$required_memory" ]]; then
+        warn "Low memory detected. Creating larger temporary swap file..."
+        
+        # Check available disk space in /tmp
+        local tmp_available=$(df /tmp | tail -1 | awk '{print $4}')
+        local swap_size_mb=4096  # 4GB swap for very low memory systems
+        local swap_size_kb=$((swap_size_mb * 1024))
+        
+        if [[ "$tmp_available" -lt "$swap_size_kb" ]]; then
+            warn "Insufficient disk space in /tmp. Reducing swap size to 2GB"
+            swap_size_mb=2048
+        fi
+        
+        temp_swap="/tmp/build-swap-$$"
+        info "Creating ${swap_size_mb}MB temporary swap file..."
+        
+        # Create swap with better error handling
+        if dd if=/dev/zero of="$temp_swap" bs=1M count="$swap_size_mb" 2>/dev/null; then
+            chmod 600 "$temp_swap"
+            if mkswap "$temp_swap" >/dev/null 2>&1; then
+                if swapon "$temp_swap" >/dev/null 2>&1; then
+                    info "Temporary swap file activated successfully"
+                    # Verify swap is active
+                    swapon --show | grep "$temp_swap" && info "Swap verification successful"
+                else
+                    warn "Could not activate temporary swap file"
+                    rm -f "$temp_swap"
+                    temp_swap=""
+                fi
+            else
+                warn "Could not format temporary swap file"
+                rm -f "$temp_swap"
+                temp_swap=""
+            fi
+        else
+            warn "Could not create temporary swap file"
+            temp_swap=""
+        fi
+        
+        # Force memory cleanup before proceeding
+        sync
+        echo 3 > /proc/sys/vm/drop_caches 2>/dev/null || true
+        sleep 2
+    fi
+    
+    # Run debootstrap to install minimal Ubuntu system with memory optimizations
     debootstrap \
         --arch=amd64 \
         --variant=minbase \
         --include=systemd,systemd-sysv,dbus,apt-utils,locales,ca-certificates \
+        --cache-dir="$BUILD_DIR/cache" \
         "$ubuntu_release" \
         "$root_fs_dir" \
-        "$ubuntu_mirror" || error "debootstrap installation failed"
+        "$ubuntu_mirror" || {
+            # Clean up temporary swap on failure
+            if [[ -n "$temp_swap" && -f "$temp_swap" ]]; then
+                swapoff "$temp_swap" 2>/dev/null || true
+                rm -f "$temp_swap"
+            fi
+            error "debootstrap installation failed"
+        }
+    
+    # Clean up temporary swap on success
+    if [[ -n "$temp_swap" && -f "$temp_swap" ]]; then
+        swapoff "$temp_swap" 2>/dev/null || true
+        rm -f "$temp_swap"
+        info "Temporary swap file cleaned up"
+    fi
     
     log "Base Ubuntu system installed successfully"
 }
