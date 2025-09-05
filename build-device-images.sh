@@ -31,6 +31,7 @@ TARGET_ARCH="${TARGET_ARCH:-amd64}"
 PARALLEL_BUILDS="${PARALLEL_BUILDS:-true}"
 DEBUG="${DEBUG:-false}"
 VERBOSE="${VERBOSE:-false}"
+WITH_CLONEZILLA="true"  # default: run Clonezilla integration unless --no-clonezilla specified
 
 # Colors for output
 RED='\033[0;31m'
@@ -89,7 +90,8 @@ Options:
   --debug              Enable debug output
   --verbose            Enable verbose output
   --clean              Clean artifacts before building
-  --help, -h           Show this help
+    --help, -h           Show this help
+    --no-clonezilla      Skip Clonezilla integration pipeline (default runs)
 
 Examples:
   $0                                    # Build with defaults
@@ -159,6 +161,10 @@ parse_args() {
             --help|-h)
                 usage
                 exit 0
+                ;;
+            --no-clonezilla)
+                WITH_CLONEZILLA="false"
+                shift
                 ;;
             *)
                 error "Unknown option: $1"
@@ -361,6 +367,26 @@ main_build() {
     for script in "${build_scripts[@]}"; do
         execute_build_script "$script"
     done
+
+    if [[ "${WITH_CLONEZILLA:-false}" == "true" ]]; then
+        log "Starting Clonezilla integration pipeline (--with-clonezilla)"
+        # Execute Clonezilla sequence: fetch -> (optional image import handled manually) -> sync -> guard -> grub -> verify
+        local cz_scripts=(
+            "10-clonezilla-fetch.sh"
+            "12-clonezilla-sync-artifacts.sh"
+            "13-clonezilla-generate-grub.sh"
+            "14-clonezilla-guard.sh"
+            "16-clonezilla-verify.sh"
+        )
+        for cz in "${cz_scripts[@]}"; do
+            if [[ -f "$SCRIPTS_DIR/$cz" ]]; then
+                execute_build_script "$cz"
+            else
+                warn "Clonezilla script missing: $cz (skipping)"
+            fi
+        done
+        info "Clonezilla integration pipeline completed"
+    fi
     
     local end_time=$(date +%s)
     local duration=$((end_time - start_time))

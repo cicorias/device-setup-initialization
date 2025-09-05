@@ -4,6 +4,17 @@
 
 set -euo pipefail
 
+# Source common library
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+LIB_DIR="$SCRIPT_DIR/lib"
+if [[ -f "$LIB_DIR/common.sh" ]]; then
+    # shellcheck source=lib/common.sh
+    source "$LIB_DIR/common.sh"
+else
+    echo "ERROR: common library not found at $LIB_DIR/common.sh" >&2
+    exit 1
+fi
+
 # Load build configuration if available
 if [[ -f "${BUILD_ENV:-}/config.env" ]]; then
     source "${BUILD_ENV}/config.env"
@@ -15,29 +26,7 @@ PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 ARTIFACTS="${ARTIFACTS:-$PROJECT_ROOT/artifacts}"
 BUILD_ENV="${BUILD_ENV:-$ARTIFACTS/build-env}"
 
-# Colors for output
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-BLUE='\033[0;34m'
-NC='\033[0m'
-
-log() {
-    echo -e "${GREEN}[$(date +'%Y-%m-%d %H:%M:%S')] $1${NC}"
-}
-
-warn() {
-    echo -e "${YELLOW}[$(date +'%Y-%m-%d %H:%M:%S')] WARNING: $1${NC}"
-}
-
-error() {
-    echo -e "${RED}[$(date +'%Y-%m-%d %H:%M:%S')] ERROR: $1${NC}"
-    exit 1
-}
-
-info() {
-    echo -e "${BLUE}[$(date +'%Y-%m-%d %H:%M:%S')] INFO: $1${NC}"
-}
+# Logging functions now supplied by common.sh
 
 # Update package lists
 update_packages() {
@@ -301,7 +290,7 @@ EOF
 
 # Main execution
 main() {
-    log "Starting bootstrap environment setup..."
+    log "Starting bootstrap environment setup... (using shared common.sh)"
     
     update_packages
     install_dependencies
