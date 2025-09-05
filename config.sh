@@ -57,8 +57,11 @@ STATIC_DNS="${STATIC_DNS:-8.8.8.8}"
 LOG_LEVEL="${LOG_LEVEL:-INFO}"  # DEBUG, INFO, WARN, ERROR
 
 # Clonezilla integration configuration (see clonezilla-deployment docs)
-clonezilla_version="${clonezilla_version:-2025.01.01}"
-clonezilla_iso_url="${clonezilla_iso_url:-https://downloads.sourceforge.net/clonezilla/clonezilla-live-${clonezilla_version}-amd64.iso}"
+clonezilla_version="${clonezilla_version:-3.2.2-15}"
+# https://gigenet.dl.sourceforge.net/project/clonezilla/clonezilla_live_stable/3.2.2-15/clonezilla-live-3.2.2-15-amd64.iso?viasf=1
+# https://pilotfiber.dl.sourceforge.net/project/clonezilla/clonezilla_live_stable/3.2.2-15/clonezilla-live-3.2.2-15-amd64.iso?viasf=1
+# https://downloads.sourceforge.net/clonezilla/clonezilla_live_stable/3.2.2-15/clonezilla-live-3.2.2-15-amd64.iso
+clonezilla_iso_url="${clonezilla_iso_url:-https://downloads.sourceforge.net/clonezilla/clonezilla_live_stable/clonezilla-live-${clonezilla_version}-amd64.iso}"
 clonezilla_iso_sha256="${clonezilla_iso_sha256:-}"
 clonezilla_transport="${clonezilla_transport:-http}"          # http|nfs|tftp
 clonezilla_server_host="${clonezilla_server_host:-192.168.1.10}"

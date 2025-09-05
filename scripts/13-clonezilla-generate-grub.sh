@@ -16,7 +16,7 @@ case "$clonezilla_transport" in
   nfs) FETCH_ARG="boot=live netboot=nfs nfsroot=${clonezilla_server_host}:${clonezilla_nfs_export}" ;;
   tftp) FETCH_ARG="fetch=tftp://${clonezilla_server_host}/clonezilla/${clonezilla_version}/filesystem.squashfs" ;;
   *) error "Unknown transport $clonezilla_transport" ;;
-endcase
+esac
 
 COMMON_ARGS="boot=live ip=dhcp net.ifnames=0 noswap nomodeset nodmraid ${FETCH_ARG} ocs_live_run=\"ocs-live-general\""
 

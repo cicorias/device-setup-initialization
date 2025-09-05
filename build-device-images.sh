@@ -32,6 +32,7 @@ PARALLEL_BUILDS="${PARALLEL_BUILDS:-true}"
 DEBUG="${DEBUG:-false}"
 VERBOSE="${VERBOSE:-false}"
 WITH_CLONEZILLA="true"  # default: run Clonezilla integration unless --no-clonezilla specified
+DO_CLEANUP="false"       # becomes true only after build environment setup
 
 # Colors for output
 RED='\033[0;31m'
@@ -368,7 +369,7 @@ main_build() {
         execute_build_script "$script"
     done
 
-    if [[ "${WITH_CLONEZILLA:-false}" == "true" ]]; then
+    if [[ "${WITH_CLONEZILLA:-true}" == "true" ]]; then
         log "Starting Clonezilla integration pipeline (--with-clonezilla)"
         # Execute Clonezilla sequence: fetch -> (optional image import handled manually) -> sync -> guard -> grub -> verify
         local cz_scripts=(
@@ -449,6 +450,10 @@ show_build_summary() {
 
 # Cleanup function
 cleanup() {
+    # Skip cleanup if build never progressed (e.g. --help early exit)
+    if [[ "$DO_CLEANUP" != "true" ]]; then
+        return 0
+    fi
     if [[ "${CLEANUP_ON_EXIT:-true}" == "true" ]]; then
         debug "Performing cleanup..."
         
@@ -489,6 +494,7 @@ main() {
     check_prerequisites
     clean_artifacts
     setup_build_environment
+    DO_CLEANUP="true"
     main_build
 }
 
